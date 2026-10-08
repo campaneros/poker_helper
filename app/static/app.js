@@ -8,7 +8,12 @@ const OPP_ACTION = { fold: "none", check: "none", call: "call", bet: "bet", rais
 const MAX_DEAD = 10;
 const $ = (id) => document.getElementById(id);
 // sel: "s<i>" hero/board slot, "k<uid>_<n>" a card an opponent showed, "dead" a card seen out of play
-const state = { slots: Array(7).fill(null), sel: "s0", suit: "h", dead: [], players: [], styles: [], opps: [], log: [], uid: 0 };
+const state = {
+  slots: Array(7).fill(null), sel: "s0", suit: "h", dead: [], players: [], styles: [], opps: [], log: [], uid: 0,
+  // the table: seats in clockwise order ("hero" or "o<uid>"), who acts first before the flop, what was done so far
+  seats: ["hero"], first: null, acts: [], undo: [], menu: null, hands: [],
+};
+const T = window.POKER_TABLE; // the betting engine (core/src/table.ts), installed by the app shell
 
 function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);
@@ -29,7 +34,6 @@ const pct = (x) => Math.round(x * 100) + "%";
 const oppByUid = (uid) => state.opps.find((o) => o.uid === uid);
 const oppName = (o) => (state.players.find((p) => p.id === o.player_id)?.name ?? `Avversario ${state.opps.indexOf(o) + 1}`);
 const whoName = (who) => (who === "hero" ? "Tu" : oppName(oppByUid(+who.slice(1)) ?? { player_id: null }));
-const streetNow = () => { const n = state.slots.slice(2).filter(Boolean).length; return n >= 5 ? 3 : n >= 4 ? 2 : n >= 3 ? 1 : 0; };
 const say = (msg) => { $("notice").textContent = msg; };
 
 async function api(path, opts) {
@@ -181,7 +185,7 @@ function historyEntry(p, hand, box) {
     h("div", { class: "mute" }, new Date(hand.ts).toLocaleString("it") + (hand.board.length ? " · board " + hand.board.map(pretty).join(" ") : "")),
     h("div", {}, byStreet.length ? byStreet.join(" → ") : "Nessuna azione registrata"),
     shown?.length ? h("div", {}, "Ha mostrato: " + shown.map(pretty).join(" ")) : null,
-    h("button", { class: "ghost", "aria-label": "Modifica questa mano", onclick: (e) => e.target.closest(".hand").replaceWith(handEditor(p, hand, box)) }, "Modifica mano"),
+    h("button", { class: "ghost", "aria-label": "Modifica questa mano", onclick: (e) => e.target.closest(".hand").replaceWith(handEditor(hand)) }, "Modifica mano"),
     h("button", {
       class: "ghost", "aria-label": "Elimina questa mano",
       onclick: async () => { await send("DELETE", "/hands/" + hand.id); await refreshAll(); },
@@ -191,11 +195,9 @@ function historyEntry(p, hand, box) {
 /* ---------- amend a saved hand ---------- */
 const ACTION_TYPES = ["fold", "check", "call", "bet", "raise", "allin"];
 const parseCards = (t) => t.split(/[\s,]+/).filter(Boolean).map((c) => c[0].toUpperCase() + c.slice(1).toLowerCase());
-const nameOfId = (id) => (id === "hero" ? "Tu" : state.players.find((p) => p.id === id)?.name ?? id.replace("anon:", "Avversario "));
-
 /** A form that replaces the hand in the history. The server re-validates everything (impossible sequences are refused),
  * and saving is an amend event: the original time is kept, so the recency weighting of the stats does not move. */
-function handEditor(p, hand, box) {
+function handEditor(hand) {
   const draft = hand.actions.map((a) => ({ ...a }));
   const err = h("p", { class: "err", role: "alert" });
   const opt = (value, text, sel) => h("option", { value, selected: sel }, text);
@@ -235,18 +237,19 @@ function handEditor(p, hand, box) {
     h("strong", {}, "Azioni, in ordine"), rows,
     h("button", { type: "button", class: "ghost", onclick: () => { draft.push({ player: who[0][0], street: draft.at(-1)?.street ?? 0, type: "check" }); drawRows(); } }, "+ Azione"),
     err, save,
-    h("button", { type: "button", class: "ghost", onclick: () => { box.hidden = true; toggleHistory(p, box); } }, "Annulla"));
+    h("button", { type: "button", class: "ghost", onclick: () => refreshAll() }, "Annulla"));
   save.onclick = async () => {
     err.textContent = "";
     save.disabled = true;
     try {
       const heroCards = parseCards(hero.value);
       await send("PUT", "/hands/" + hand.id, {
+        ...(hand.table ? { table: hand.table } : {}),
         bb: parseFloat(bb.value), structure: structure.value, board: parseCards(board.value), ...(heroCards.length ? { hero: heroCards } : {}),
         players: shown.map((s) => ({ id: s.id, known: parseCards(s.input.value) })),
         actions: draft.map((a) => ({ player: a.player, street: a.street, type: a.type, ...(a.amount !== undefined ? { amount: a.amount } : {}), ...(a.pot_before !== undefined ? { pot_before: a.pot_before } : {}) })),
       });
-      await refreshAll(); // the history reopens by itself, showing the amended hand
+      await refreshAll(); // the histories reopen by themselves, showing the amended hand
       say("Mano modificata. Le statistiche sono ricalcolate; l'ora originale è rimasta.");
     } catch (e) {
       err.textContent = e.message; // the server's reason: impossible sequence, duplicate card, full storage...
@@ -297,7 +300,7 @@ function renderOpps() {
         h("span", { class: "tag" }, p ? `${p.style} · ${p.hands} mani` : "stile medio"),
         h("button", {
           "aria-label": "Rimuovi",
-          onclick: () => { state.opps = state.opps.filter((x) => x !== o); state.log = state.log.filter((l) => l.who !== "o" + o.uid); renderAll(); },
+          onclick: () => removeOpp(o),
         }, "✕")),
       h("div", { class: "grid" },
         h("label", {}, "Ultima azione", h("select", {
@@ -315,39 +318,223 @@ function renderOpps() {
 
 /* ---------- action log ---------- */
 function renderLog() {
-  const who = $("logWho"), current = who.value;
-  who.replaceChildren(h("option", { value: "hero" }, "Tu"),
-    ...state.opps.map((o) => h("option", { value: "o" + o.uid }, oppName(o))));
-  if ([...who.options].some((x) => x.value === current)) who.value = current;
   $("log").replaceChildren(...state.log.map((l) => h("li", {},
     `${STREETS[l.street]} · ${whoName(l.who)}: ${ACTION_NAMES[l.type]}${l.amount ? " " + fmt(l.amount) : ""}` +
     (l.pot_before ? ` (piatto ${fmt(l.pot_before)})` : ""))));
 }
 
-/** Opponents' quick-mode state follows what was logged for them. */
-function syncOppsFromLog() {
+/* ---------- the table ---------- */
+const keyOf = (o) => "o" + o.uid;
+const seatName = (key) => (key === "hero" ? "Tu" : oppName(oppByUid(+key.slice(1)) ?? { player_id: null }));
+const boardCount = () => state.slots.slice(2).filter(Boolean).length;
+const idOfSeat = (key) => (key === "hero" ? "hero" : state.opps.find((o) => keyOf(o) === key)?.player_id || `anon:${state.opps.findIndex((o) => keyOf(o) === key) + 1}`);
+
+/** The seating and the engine's view of the hand so far; null until the first player to act is chosen. */
+function tableState() {
+  if (!T || state.seats.length < 2 || !state.first || !state.seats.includes(state.first)) return null;
+  const r = T.replay({ seats: state.seats, first: state.seats.indexOf(state.first), bb: num("bb") }, state.acts);
+  return "state" in r ? r.state : null;
+}
+
+/** Everything that follows from the table: the log, who folded, the pot, what hero owes, the position. */
+function syncFromTable() {
+  const st = tableState();
+  state.log = st ? st.steps.map((x) => ({ ...x })) : [];
   for (const o of state.opps) {
-    const mine = state.log.filter((l) => l.who === "o" + o.uid);
-    o.folded = mine.some((l) => l.type === "fold");
+    const mine = state.log.filter((l) => l.who === keyOf(o));
+    o.folded = !!st && st.folded.includes(keyOf(o));
     const last = mine[mine.length - 1];
     if (!last) continue;
     o.action = OPP_ACTION[last.type];
-    if (last.amount && last.pot_before > 0) { o.bet_frac = last.amount / last.pot_before; o.bet_amount = undefined; } // the log is explicit
+    if (last.amount && last.pot_before > 0) { o.bet_frac = last.amount / last.pot_before; o.bet_amount = undefined; } // the table is explicit
   }
+  if (!st) return;
+  $("pot").value = fmt(T.pot(st));
+  $("toCall").value = st.folded.includes("hero") ? 0 : fmt(T.toCall(st, "hero"));
+  const pos = T.positionOf(st, "hero");
+  const options = [...$("position").options];
+  $("position").value = options.reduce((best, x) => (Math.abs(+x.value - pos) < Math.abs(+best.value - pos) ? x : best)).value;
 }
 
-function addAction() {
-  const type = $("logAct").value, amount = parseFloat($("logAmt").value);
-  if (["bet", "raise"].includes(type) && !(amount > 0)) { say("Inserisci l'importo della puntata."); return; }
-  const pot = num("pot");
-  state.log.push({
-    who: $("logWho").value, street: streetNow(), type,
-    ...(amount > 0 ? { amount } : {}), ...(pot >= 0 ? { pot_before: pot } : {}),
-  });
-  $("logAmt").value = "";
-  say("");
-  syncOppsFromLog();
+function afterTableChange() {
+  syncFromTable();
   renderAll();
+}
+
+function addOpp(playerId) {
+  if (state.opps.length >= 9) return;
+  if (state.acts.length) { say("Hai già registrato azioni: annullale per cambiare i giocatori al tavolo."); return; }
+  const o = newOpp(playerId);
+  state.opps.push(o);
+  state.seats.push(keyOf(o));
+  afterTableChange();
+}
+
+function removeOpp(o) {
+  if (state.acts.length) { say("Hai già registrato azioni: annullale per togliere un giocatore dal tavolo."); return; }
+  state.opps = state.opps.filter((x) => x !== o);
+  state.seats = state.seats.filter((k) => k !== keyOf(o));
+  if (state.first === keyOf(o)) state.first = null;
+  if (state.menu === keyOf(o)) state.menu = null;
+  afterTableChange();
+}
+
+/** Where a seat is drawn: hero at the bottom, the others clockwise in table order. */
+function seatPosition(key) {
+  const n = state.seats.length, k = (state.seats.indexOf(key) - state.seats.indexOf("hero") + n) % n;
+  const angle = (Math.PI / 2) + (k * 2 * Math.PI) / n;
+  return `left:${(50 + 41 * Math.cos(angle)).toFixed(1)}%;top:${(50 + 42 * Math.sin(angle)).toFixed(1)}%`;
+}
+
+function renderTable() {
+  const st = tableState();
+  const need = st && !st.over ? T.BOARD_FOR_STREET[st.street] : 0;
+  $("tableHint").textContent = !T ? "" : state.seats.length < 2 ? "Aggiungi gli avversari: ognuno prende un posto al tavolo."
+    : !st ? "Tocca un giocatore e scegli «Parla per primo» (il primo a parlare prima del flop): da lì ricavo bottone, bui e turni."
+    : st.over ? (st.over === "fold" ? "Mano finita: tutti hanno foldato." : "Non ci sono più puntate: escono le carte e si scoprono.")
+    : boardCount() < need ? `Inserisci le carte del ${["", "flop", "turn", "river"][st.street]} per continuare.`
+    : `Tocca a ${seatName(T.nextToAct(st))}${T.nextToAct(st) === "hero" ? ": premi «Consiglia»" : ""}.`;
+  const turn = st && !st.over ? T.nextToAct(st) : null;
+  const seats = state.seats.map((key, i) => {
+    const flags = [];
+    if (st && i === st.button) flags.push("D");
+    if (st && i === st.smallBlind) flags.push("SB");
+    if (st && i === st.bigBlind) flags.push("BB");
+    if (state.first === key) flags.push("1°");
+    const folded = !!st && st.folded.includes(key);
+    const status = !st ? "" : folded ? "fold" : st.allIn.includes(key) ? "all-in" : st.committed[key] > 0 ? fmt(st.committed[key]) : "";
+    return h("button", {
+      class: "seat" + (key === "hero" ? " hero" : "") + (folded ? " folded" : "") + (turn === key ? " turn" : "") + (state.menu === key ? " picked" : ""),
+      style: seatPosition(key), "data-seat": key,
+      "aria-label": `${seatName(key)}${flags.length ? ", " + flags.join(" ") : ""}${status ? ", " + status : ""}. Tocca per registrare cosa fa`,
+      onclick: () => { state.menu = state.menu === key ? null : key; renderTable(); renderSeatMenu(); },
+    }, h("span", { class: "badges" }, ...flags.map((f) => h("b", {}, f))), h("strong", {}, seatName(key).replace(/^Avversario /, "Avv. ")), h("small", {}, status || " "));
+  });
+  const board = state.slots.slice(2).filter(Boolean).map(pretty).join(" ");
+  $("table").replaceChildren(
+    h("div", { class: "felt" },
+      h("span", { class: "pot" }, st ? `Piatto ${fmt(T.pot(st))}` : "Piatto"),
+      h("span", { class: "cards" }, board || "—"),
+      st && !st.over && st.current > 0 ? h("span", { class: "mute" }, `Puntata da pareggiare ${fmt(st.current)}${st.lastRaise && st.lastRaise.street === st.street ? ` · ultimo rilancio: ${seatName(st.lastRaise.who)} a ${fmt(st.lastRaise.to)}` : ""}`)
+        : st && !st.over ? h("span", { class: "mute" }, ["Preflop", "Flop", "Turn", "River"][st.street]) : null),
+    ...seats);
+}
+
+const moveSeat = (key, d) => {
+  const i = state.seats.indexOf(key), j = (i + d + state.seats.length) % state.seats.length;
+  [state.seats[i], state.seats[j]] = [state.seats[j], state.seats[i]];
+  afterTableChange();
+};
+
+/** What the chosen player does. Players who must have acted before him are recorded as passing (fold, or check if free). */
+function commitAction(key, type, amount) {
+  const st = tableState();
+  const fail = (msg) => { const e = [...$("seatMenu").querySelectorAll(".err")].at(-1); if (e) e.textContent = msg; };
+  if (!st) return fail("Scegli prima chi parla per primo.");
+  const plan = T.skippedBefore(st, key);
+  if ("error" in plan) return fail(plan.error);
+  const acts = [...plan, { who: key, type, ...(amount !== undefined ? { amount } : {}) }];
+  let cur = st;
+  for (const a of acts) {
+    const r = T.apply(cur, a);
+    if ("error" in r) return fail(r.error);
+    cur = r.state;
+  }
+  state.acts = [...state.acts, ...acts];
+  state.undo.push(acts.length);
+  state.menu = null;
+  say(plan.length ? "Passano prima di lui: " + plan.map((a) => `${seatName(a.who)} (${a.type === "fold" ? "fold" : "check"})`).join(", ") + "." : "");
+  afterTableChange();
+}
+
+function renderSeatMenu() {
+  const box = $("seatMenu"), key = state.menu;
+  if (!key || !state.seats.includes(key)) { box.hidden = true; return; }
+  box.hidden = false;
+  const st = tableState();
+  const opp = key === "hero" ? null : oppByUid(+key.slice(1));
+  const free = !state.acts.length;
+  const parts = [h("header", {}, h("strong", {}, seatName(key)),
+    h("button", { "aria-label": "Chiudi", onclick: () => { state.menu = null; renderTable(); renderSeatMenu(); } }, "✕"))];
+  if (opp) {
+    parts.push(h("label", {}, "Profilo", h("select", {
+      "aria-label": `Profilo del giocatore al posto di ${seatName(key)}`,
+      onchange: (e) => { opp.player_id = e.target.value || null; afterTableChange(); },
+    }, h("option", { value: "" }, "Sconosciuto (stile medio)"),
+      ...state.players.map((p) => h("option", { value: p.id, selected: p.id === opp.player_id }, `${p.name} · ${p.style}`)))));
+  }
+  parts.push(h("div", { class: "acts" },
+    h("button", { disabled: !free, onclick: () => { state.first = key; afterTableChange(); } }, state.first === key ? "È il primo ✓" : "Parla per primo"),
+    h("button", { disabled: !free, "aria-label": "Sposta a sinistra", onclick: () => moveSeat(key, -1) }, "◀ Sposta"),
+    h("button", { disabled: !free, "aria-label": "Sposta a destra", onclick: () => moveSeat(key, 1) }, "Sposta ▶")));
+  if (!free) parts.push(h("p", { class: "mute" }, "Ordine e primo a parlare si cambiano solo prima di registrare azioni."));
+  if (st && !st.over) {
+    const need = T.BOARD_FOR_STREET[st.street];
+    const plan = T.skippedBefore(st, key);
+    if (boardCount() < need) {
+      parts.push(h("p", { class: "err" }, `Inserisci prima le carte del ${["", "flop", "turn", "river"][st.street]}.`));
+    } else if ("error" in plan) {
+      parts.push(h("p", { class: "err" }, plan.error));
+    } else {
+      let after = st;
+      for (const a of plan) after = T.apply(after, a).state;
+      const owe = T.toCall(after, key), pot = T.pot(after), cur = after.current;
+      if (plan.length) parts.push(h("p", { class: "mute" }, "Prima di lui passano: " + plan.map((a) => seatName(a.who)).join(", ") + "."));
+      const amount = h("input", {
+        type: "number", inputmode: "decimal", step: "any", min: "0", id: "seatAmount",
+        "aria-label": cur > 0 ? "Rilancia a (totale)" : "Importo della puntata", value: fmt(cur > 0 ? T.minRaiseTo(after) : st.bb),
+      });
+      const size = (label, to) => h("button", { type: "button", onclick: () => { amount.value = fmt(Math.round(to * 100) / 100); } }, label);
+      const potAfterCall = pot + owe;
+      parts.push(h("div", { class: "acts" },
+        h("button", { onclick: () => commitAction(key, "fold") }, "Fold"),
+        owe > 0 ? h("button", { onclick: () => commitAction(key, "call") }, `Call ${fmt(owe)}`) : h("button", { onclick: () => commitAction(key, "check") }, "Check")));
+      parts.push(h("label", {}, cur > 0 ? `Rilancia a (totale; minimo ${fmt(T.minRaiseTo(after))})` : "Punta", amount));
+      parts.push(h("div", { class: "sizes" },
+        size("Min", cur > 0 ? T.minRaiseTo(after) : after.bb),
+        size("½ piatto", cur + 0.5 * potAfterCall), size("¾ piatto", cur + 0.75 * potAfterCall), size("Piatto", cur + potAfterCall)));
+      parts.push(h("div", { class: "acts" },
+        h("button", { onclick: () => commitAction(key, cur > 0 ? "raise" : "bet", parseFloat(amount.value)) }, cur > 0 ? "Rilancia" : "Punta"),
+        h("button", { onclick: () => commitAction(key, "allin", parseFloat(amount.value)) }, "All-in (totale)")));
+      if (key === "hero") parts.push(h("p", { class: "mute" }, `Nel campo «Il tuo stack» hai ${fmt(num("stack"))}: per un all-in scrivi il totale che metti in questo giro.`));
+    }
+  }
+  parts.push(h("p", { class: "err", role: "alert" }));
+  box.replaceChildren(...parts);
+}
+
+/* ---------- the history of whole hands ---------- */
+const nameOfId = (id) => (id === "hero" ? "Tu" : state.players.find((p) => p.id === id)?.name ?? id.replace("anon:", "Avversario "));
+
+function handCard(hand) {
+  let seating = null, potTotal = null;
+  if (hand.table && T) {
+    const r = T.replay({ seats: hand.table.seats, first: hand.table.first, bb: hand.bb },
+      hand.actions.map((a) => ({ who: a.player, type: a.type, ...(a.amount !== undefined ? { amount: a.amount } : {}) })));
+    if ("state" in r) {
+      const s = r.state;
+      potTotal = T.pot(s);
+      seating = hand.table.seats.map((id, i) => nameOfId(id) + (i === s.button ? " (D)" : i === s.smallBlind ? " (SB)" : i === s.bigBlind ? " (BB)" : "")).join(" → ");
+    }
+  }
+  const lines = STREETS.map((name, s) => {
+    const acts = hand.actions.filter((a) => a.street === s);
+    return acts.length ? `${name}: ` + acts.map((a) => `${nameOfId(a.player)} ${ACTION_NAMES[a.type]}${a.amount ? " " + fmt(a.amount) : ""}`).join(" · ") : null;
+  }).filter(Boolean);
+  const shown = hand.players.filter((p) => p.known?.length).map((p) => `${nameOfId(p.id)}: ${p.known.map(pretty).join(" ")}`);
+  return h("li", {}, h("details", { class: "hand-card" },
+    h("summary", {}, `${new Date(hand.ts).toLocaleString("it")} · ${hand.players.length + 1} giocatori${potTotal !== null ? " · piatto " + fmt(potTotal) : ""}`),
+    seating ? h("p", { class: "mute" }, "Posti: " + seating + ` · bui ${fmt(hand.bb / 2)}/${fmt(hand.bb)}`) : null,
+    hand.hero?.length ? h("p", {}, "Le tue carte: " + hand.hero.map(pretty).join(" ")) : null,
+    hand.board.length ? h("p", {}, "Board: " + hand.board.map(pretty).join(" ")) : null,
+    ...lines.map((l) => h("p", {}, l)),
+    shown.length ? h("p", {}, "Mostrate: " + shown.join(" · ")) : null,
+    h("button", { class: "ghost", "aria-label": "Modifica questa mano", onclick: (e) => e.target.closest("li").replaceWith(handEditor(hand)) }, "Modifica mano"),
+    h("button", { class: "ghost", "aria-label": "Elimina questa mano", onclick: async () => { await send("DELETE", "/hands/" + hand.id); await refreshAll(); } }, "Elimina mano")));
+}
+
+function renderHandLog() {
+  $("handLog").replaceChildren(...(state.hands.length ? state.hands.map(handCard) : [h("li", { class: "mute" }, "Nessuna mano registrata.")]));
 }
 
 async function saveHand() {
@@ -359,16 +546,21 @@ async function saveHand() {
     const board = state.slots.slice(2).filter(Boolean);
     if (![0, 3, 4, 5].includes(board.length)) throw new Error("Il board deve avere 0, 3, 4 o 5 carte consecutive.");
     if (!state.opps.length) throw new Error("Aggiungi almeno un avversario.");
+    if (!tableState()) throw new Error("Indica chi parla per primo al tavolo e registra le azioni.");
     if (!state.log.length) throw new Error("Registra almeno un'azione prima di salvare.");
     const ids = new Map(state.opps.map((o, i) => [o.uid, o.player_id || `anon:${i + 1}`]));
     const idOf = (who) => (who === "hero" ? "hero" : ids.get(+who.slice(1)));
     const hero = state.slots[0] && state.slots[1] ? [state.slots[0], state.slots[1]] : undefined;
     const hand = await send("POST", "/hands", {
       id: state.pendingHandId, bb: num("bb"), structure: $("structure").value === "pot_limit" ? "pot_limit" : "no_limit", board, hero,
+      table: { seats: state.seats.map(idOfSeat), first: state.seats.indexOf(state.first) },
       players: state.opps.map((o) => ({ id: ids.get(o.uid), known: o.known.filter(Boolean) })),
       actions: state.log.map((l) => ({ player: idOf(l.who), street: l.street, type: l.type, amount: l.amount, pot_before: l.pot_before })),
     });
     state.pendingHandId = null;
+    // next hand: the button moves one seat clockwise, so the first to act does too
+    state.first = state.seats[(state.seats.indexOf(state.first) + 1) % state.seats.length];
+    state.acts = []; state.undo = []; state.menu = null;
     state.slots.fill(null); state.sel = "s0"; state.dead = []; state.log = [];
     for (const o of state.opps) { o.known = [null, null]; o.folded = false; o.action = "none"; }
     await refreshAll();
@@ -399,7 +591,8 @@ function buildRequest() {
   const mode = $("structure").value;
   const req = {
     hero: s.slice(0, 2), board, structure: mode === "pot_limit" ? "pot_limit" : "no_limit",
-    bb: num("bb"), pot: num("pot"), to_call: num("toCall") || 0, stack: num("stack"), position: num("position"),
+    bb: num("bb"), pot: num("pot"), to_call: num("toCall") || 0, stack: num("stack"),
+    position: tableState() ? T.positionOf(tableState(), "hero") : num("position"),
     ...(state.dead.length ? { dead: state.dead } : {}),
     opponents: active.map((o) => {
       const out = { player_id: o.player_id, action: o.action, bet_frac: betFraction(o) };
@@ -522,11 +715,11 @@ function renderResult(r, req, active) {
 
 /* ---------- wiring ---------- */
 async function refreshAll() {
-  await Promise.all([loadPlayers(), loadStyles()]);
+  await Promise.all([loadPlayers(), loadStyles(), api("/hands").then((h) => { state.hands = h; }).catch(() => { state.hands = []; })]);
   renderAll();
 }
 function renderAll() {
-  renderCards(); renderOpps(); renderLog(); renderPlayers(); renderStyles();
+  renderCards(); renderOpps(); renderLog(); renderTable(); renderSeatMenu(); renderPlayers(); renderStyles(); renderHandLog();
 }
 
 $("go").onclick = go;
@@ -541,18 +734,22 @@ $("clearCards").onclick = () => {
 };
 $("structure").onchange = (e) => { $("tourney").hidden = e.target.value !== "tournament"; renderOpps(); };
 $("tStacks").addEventListener("input", renderOpps);
-$("addOpp").onclick = () => {
-  if (state.opps.length >= 9) return;
-  state.opps.push(newOpp($("addSel").value || null));
-  renderAll();
-};
+$("addOpp").onclick = () => addOpp($("addSel").value || null);
+$("bb").addEventListener("change", () => { // new blinds change every amount: keep the actions only if they still hold
+  if (state.acts.length && !tableState()) { state.acts = []; state.undo = []; say("Big blind cambiato: le azioni registrate non valgono più e sono state tolte."); }
+  afterTableChange();
+});
 $("newPlayer").onclick = async () => {
   const name = $("newName").value.trim();
   if (!name) return;
   try { await send("POST", "/players", { name }); $("newName").value = ""; await refreshAll(); } catch (e) { say(e.message); }
 };
-$("logAdd").onclick = addAction;
-$("logUndo").onclick = () => { state.log.pop(); syncOppsFromLog(); say(""); renderAll(); };
+$("logUndo").onclick = () => {
+  const n = state.undo.pop() ?? 0;
+  state.acts = state.acts.slice(0, state.acts.length - n); // an action and the passes recorded with it go together
+  say("");
+  afterTableChange();
+};
 $("saveHand").onclick = saveHand;
 $("styleAdd").onclick = async () => {
   const msg = $("styleMsg");
@@ -568,8 +765,7 @@ $("styleAdd").onclick = async () => {
   }
 };
 
-state.opps.push(newOpp(null));
-renderAll();
+addOpp(null);
 refreshAll().catch(() => {});
 // Native app (Capacitor): assets are local, a service worker would only risk serving stale files after an update.
 if ("serviceWorker" in navigator && !window.POKER_NATIVE) navigator.serviceWorker.register("sw.js").catch(() => {});

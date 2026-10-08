@@ -27,8 +27,8 @@ Installazione sul telefono: `adb install -r dist/PokerAdvisor-1.0.apk`, oppure c
 ## Test
 
 ```bash
-(cd ../core && npx vitest run)       # motore: parità con Python, range, storico, Nash, ICM, shove multiway   (116)
-npx vitest run                       # archivio a eventi, guasti del registro, rotte, storico, Nash, ICM, multiway (84)
+(cd ../core && npx vitest run)       # motore: parità con Python, range, storico, Nash, ICM, shove multiway, tavolo   (147)
+npx vitest run                       # archivio a eventi, guasti del registro, tavolo, rotte, storico, Nash, ICM, multiway (92)
 node e2e/webview-flow.mjs 9222       # interfaccia completa nella WebView (vedi intestazione del file)
 ```
 

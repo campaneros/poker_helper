@@ -3,6 +3,7 @@
  * evidence accumulates. */
 import { PRIOR, foldToBet, type OppStats } from "./policy.js";
 import type { ActionType } from "./range.js";
+import { replay } from "./table.js";
 
 export interface HandAction {
   player: string; // player id, or "anon:N" for someone who is not saved
@@ -21,13 +22,16 @@ export interface HandRecord {
   hero?: string[];
   players: { id: string; known?: string[] }[]; // known = cards that player showed
   actions: HandAction[]; // in order of play
+  /** Who sat where and who acted first before the flop. With it the hand is replayed by the table engine, so turns,
+   * streets and amounts are checked; without it (older hands) only the basic checks apply. */
+  table?: { seats: string[]; first: number };
 }
 
 const BOARD_FOR_STREET = [0, 3, 4, 5];
 
 /** Why a hand record cannot be true, or null. Used before a recorded or amended hand is stored: the stats are derived
  * from these actions, so an impossible sequence would silently skew them. */
-export function validateHand(hand: Pick<HandRecord, "board" | "actions" | "players">): string | null {
+export function validateHand(hand: Pick<HandRecord, "board" | "actions" | "players" | "table" | "bb">): string | null {
   const out = new Set<string>();
   let street = 0;
   for (const a of hand.actions) {
@@ -40,7 +44,16 @@ export function validateHand(hand: Pick<HandRecord, "board" | "actions" | "playe
     if (a.type === "fold") out.add(a.player);
   }
   for (const p of hand.players) if ((p.known?.length ?? 0) > 2) return "al massimo due carte mostrate per giocatore";
-  return null;
+  return hand.table ? validateAtTable(hand, hand.table) : null;
+}
+
+/** Replay the hand at its table: right turns, legal actions, and every action on the street the engine puts it on. */
+function validateAtTable(hand: Pick<HandRecord, "actions" | "bb">, table: { seats: string[]; first: number }): string | null {
+  const r = replay({ seats: table.seats, first: table.first, bb: hand.bb },
+    hand.actions.map((a) => ({ who: a.player, type: a.type, ...(a.amount !== undefined ? { amount: a.amount } : {}) })));
+  if ("error" in r) return r.at >= 0 ? `azione ${r.at + 1}: ${r.error}` : r.error;
+  const wrong = r.state.steps.findIndex((step, i) => step.street !== hand.actions[i].street);
+  return wrong >= 0 ? `azione ${wrong + 1}: al tavolo cade al ${["preflop", "flop", "turn", "river"][r.state.steps[wrong].street]}` : null;
 }
 
 /** Counters from before the action log existed (or from the quick manual recorder). */

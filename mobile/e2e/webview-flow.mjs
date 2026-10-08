@@ -83,19 +83,36 @@ const inPage = `(async () => {
   $('.suit[data-suit="d"]').click();
   out.checks.shownCardLeavesPicker = $('.ranks button[aria-label="Kd"]').disabled === true;
 
-  // 5) action log: raise by the saved player, fold marks him out, undo brings him back
-  const savedUid = $$('#logWho option')[2].value;
-  setValue($('#logWho'), savedUid); setValue($('#logAct'), 'raise'); $('#logAmt').value = '12'; $('#logAdd').click();
-  out.checks.actionLogged = $$('#log li').length === 1 && /raise 12/.test($('#log li').textContent);
-  setValue($('#logAct'), 'fold'); $('#logAdd').click();
-  out.checks.foldMarksPlayerOut = $$('.opp')[1].classList.contains('folded');
-  $('#logUndo').click();
-  out.checks.undoRestoresPlayer = !$$('.opp')[1].classList.contains('folded') && $$('#log li').length === 1;
-  setValue($('#logAct'), 'bet'); $('#logAmt').value = ''; $('#logAdd').click();
-  out.checks.betNeedsAmount = /importo/i.test($('#notice').textContent) && $$('#log li').length === 1;
+  // 5) the table: first to act, a player skipped over, undo, a refused raise, then the real sequence
+  out.checks.tableHintAsksFirst = /per primo/.test($('#tableHint').textContent) && $$('.seat').length === 3;
+  out.checks.seatsAreTouchSized = $$('.seat').every((e) => rect(e).width >= ${MIN_TOUCH_PX} && rect(e).height >= ${MIN_TOUCH_PX});
+  const seat = (k) => $('.seat[data-seat="' + k + '"]');
+  const menuButton = (text) => $$('#seatMenu button').find((b) => b.textContent.trim().startsWith(text));
+  seat('o1').click();
+  menuButton('Parla per primo').click();
+  const flags = (k) => seat(k).querySelector('.badges').textContent;
+  out.checks.tableDerivesBlinds = /D/.test(flags('o1')) && /1°/.test(flags('o1')) && /SB/.test(flags('o2')) && /BB/.test(flags('hero'));
+  out.checks.tableHintNamesNext = /Tocca a Avversario 1/.test($('#tableHint').textContent);
+  seat('o2').click();
+  menuButton('Fold').click();          // E2E folds although the first player has not acted: he is recorded as passing
+  out.checks.skippedPlayerFolds = $$('.opp')[0].classList.contains('folded') && $$('#log li').length === 2 && /Passano prima di lui/.test($('#notice').textContent);
+  $('#logUndo').click();               // the fold and the pass recorded with it go together
+  out.checks.undoRestoresPlayer = !$$('.opp')[0].classList.contains('folded') && $$('#log li').length === 0;
+  seat('o1').click();
+  menuButton('Call').click();
+  seat('o2').click();
+  $('#seatAmount').value = '';
+  $$('#seatMenu button').find((b) => b.textContent.trim() === 'Rilancia').click();
+  out.checks.betNeedsAmount = /superare/.test($('#seatMenu .err').textContent) && $$('#log li').length === 1;
+  $('#seatAmount').value = '12';
+  $$('#seatMenu button').find((b) => b.textContent.trim() === 'Rilancia').click();
+  out.log = $$('#log li').map((li) => li.textContent);
+  out.checks.actionLogged = $$('#log li').length === 2 && /Avversario 1: call 2/.test(out.log[0]) && /E2E: raise 12 \\(piatto 5\\)/.test(out.log[1]);
+  out.checks.tableFillsPotAndCall = $('#pot').value === '16' && $('#toCall').value === '10';
+  out.checks.lastRaiseShown = /ultimo rilancio: E2E a 12/.test($('#table .felt').textContent);
 
   // 6) advice: shown cards pin the hand, the log narrows the other opponent, bars are drawn
-  $('#pot').value = 40; $('#toCall').value = 20; $('#stack').value = 300;
+  $('#stack').value = 300;
   $('#go').click();
   await wait(() => $('#result .big'), 'advice');
   const text = $('#result').innerText;
@@ -117,23 +134,23 @@ const inPage = `(async () => {
   out.checks.rangeMapFitsScreen = rect(maps[1].querySelector('.grid13')).width <= window.innerWidth;
   const req = sent.advise[0];
   out.checks.adviceCarriesTableInfo = !!req && req.opponents[0].known?.length === 2 && req.opponents[1].actions?.length === 1
-    && req.opponents[1].actions[0].type === 'raise' && req.dead?.length === 1;
+    && req.opponents[1].actions[0].type === 'raise' && req.dead?.length === 1 && req.pot === 16 && req.to_call === 10;
 
-  // 6b) a bet typed in chips instead of a pot fraction: pot 40 already holds the 30, so it was 30 into 10 = 3x
+  // 6b) a bet typed in chips instead of a pot fraction: pot 16 already holds the 8, so it was 8 into 8 = 1x
   setValue($$('.opp')[0].querySelector('select'), 'bet');
-  typeInto2($$('.opp')[0].querySelector('input[aria-label="Importo della puntata in fiche"]'), '30');
+  typeInto2($$('.opp')[0].querySelector('input[aria-label="Importo della puntata in fiche"]'), '8');
   $('#result').replaceChildren();
   $('#go').click();
   await wait(() => $('#result .big'), 'advice with a typed bet');
-  out.checks.typedBetReachesTheEngine = Math.abs(sent.advise[sent.advise.length - 1].opponents[0].bet_frac - 3) < 1e-9;
+  out.checks.typedBetReachesTheEngine = Math.abs(sent.advise[sent.advise.length - 1].opponents[0].bet_frac - 1) < 1e-9;
 
   // 7) save the hand: the player's stats and history are updated
   $('#saveHand').click();
   await wait(() => /Mano salvata/.test($('#notice').textContent), 'hand saved');
   out.checks.handSaved = true;
   const saved = sent.hands[0];
-  out.checks.savedHandIsComplete = !!saved && saved.actions.length === 1 && saved.actions[0].amount === 12
-    && saved.players.length === 2 && saved.players[0].known.length === 2 && saved.board.length === 3 && saved.hero?.length === 2;
+  out.checks.savedHandIsComplete = !!saved && saved.actions.length === 2 && saved.actions[1].amount === 12
+    && saved.table?.seats.length === 3 && saved.table.first === 1 && saved.players.length === 2 && saved.players[0].known.length === 2 && saved.board.length === 3 && saved.hero?.length === 2;
   out.checks.stateResetAfterSave = $$('#log li').length === 0 && $$('#deadRow .chip:not(.add)').length === 0
     && $$('#slots .slot').every((e) => e.textContent === '·');
   await wait(() => /1 mani/.test($('#roster li').textContent), 'player stats refreshed');
@@ -143,28 +160,32 @@ const inPage = `(async () => {
   out.history = $('#roster li .hand').innerText.replace(/\\n+/g, ' | ');
   out.checks.historyShowsAction = /raise 12/.test(out.history) && /Preflop|Flop/.test(out.history);
 
-  // 7a) amend the saved hand: change the amount, try an impossible edit (refused, nothing stored), then fix it
+  // 7a) amend the saved hand: raise 12 -> 18; an edit the table refuses (check against a bet) is rejected; then fix it
   $$('#roster li button').find((b) => b.getAttribute('aria-label') === 'Modifica questa mano').click();
   await wait(() => $('#roster li .editor'), 'hand editor');
   const editorRows = () => $$('#roster li .editor .edit-action');
   const typeInto = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
-  out.checks.editorShowsTheAction = editorRows().length === 1 && editorRows()[0].querySelector('input[aria-label="Importo"]').value === '12';
-  typeInto(editorRows()[0].querySelector('input[aria-label="Importo"]'), '18');
-  $$('#roster li .editor button').find((b) => b.textContent === '+ Azione').click();
-  out.checks.editorAddsARow = editorRows().length === 2;
-  const e2eId = [...editorRows()[1].querySelector('select[aria-label$="giocatore"]').options].find((o) => o.textContent === 'E2E').value;
-  setValue(editorRows()[0].querySelector('select[aria-label$="tipo"]'), 'fold');
-  setValue(editorRows()[1].querySelector('select[aria-label$="giocatore"]'), e2eId);
-  $('#roster li .editor button[aria-label="Salva le modifiche alla mano"]').click();
-  await wait(() => /foldato/.test($('#roster li .editor .err').textContent), 'impossible edit refused');
+  const saveEdit = () => $('#roster li .editor button[aria-label="Salva le modifiche alla mano"]').click();
+  out.checks.editorShowsTheHand = editorRows().length === 2 && editorRows()[1].querySelector('input[aria-label="Importo"]').value === '12';
+  typeInto(editorRows()[1].querySelector('input[aria-label="Importo"]'), '18');
+  setValue(editorRows()[1].querySelector('select[aria-label$="tipo"]'), 'check');
+  saveEdit();
+  await wait(() => /check/.test($('#roster li .editor .err').textContent), 'impossible edit refused');
   out.checks.impossibleEditRefused = !$('#roster li .editor button[aria-label="Salva le modifiche alla mano"]').disabled;
-  editorRows()[1].querySelector('button[aria-label^="Elimina l"]').click();
-  setValue(editorRows()[0].querySelector('select[aria-label$="tipo"]'), 'raise');
-  $('#roster li .editor button[aria-label="Salva le modifiche alla mano"]').click();
+  setValue(editorRows()[1].querySelector('select[aria-label$="tipo"]'), 'raise');
+  saveEdit();
   await wait(() => /Mano modificata/.test($('#notice').textContent) && $('#roster li .hand:not(.editor)'), 'amended hand saved');
   out.amended = $('#roster li .hand').innerText.replace(/\\n+/g, ' | ');
   out.checks.amendShowsNewAmount = /raise 18/.test(out.amended) && !/raise 12/.test(out.amended);
   out.checks.amendKeepsOneHand = $$('#roster li .hand').length === 1 && /1 mani/.test($('#roster li').textContent);
+
+  // 7a2) the history of whole hands: seating, every player's actions in order, final pot
+  await wait(() => $$('#handLog li').length === 1 && $('#handLog .hand-card'), 'hand log');
+  const card = $('#handLog .hand-card');
+  card.open = true;
+  out.handCard = card.innerText.replace(/\\n+/g, ' | ');
+  out.checks.handLogShowsTheHand = /Posti: Tu \\(BB\\).*Avversario 1 \\(D\\).*E2E \\(SB\\)/.test(out.handCard)
+    && /Preflop: Avversario 1 call 2 · E2E raise 18/.test(out.handCard) && /piatto 22/.test(out.handCard) && /Board: /.test(out.handCard);
 
   // 7b) heads-up short stack: the Nash push/fold block appears (small blind, 10 bb, aces); with two opponents it must not
   pickCard('Ah'); pickCard('As');

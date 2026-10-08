@@ -58,6 +58,16 @@ function parseActions(v: unknown, who: (a: any) => string | undefined): HandActi
   });
 }
 
+/** Optional seating: ids in table order and the index of the first to act before the flop. */
+function parseTable(v: any, known: Set<string>): HandRecord["table"] {
+  if (v === undefined || v === null) return undefined;
+  const seats = list(v.seats, "posti al tavolo", 2, 10).map((s) => text(s, "posto", 40));
+  if (new Set(seats).size !== seats.length) throw new ValidationError("posti duplicati al tavolo");
+  if (seats.some((s) => !known.has(s))) throw new ValidationError("posto occupato da un giocatore che non è nella mano");
+  if (!Number.isInteger(v.first) || v.first < 0 || v.first >= seats.length) throw new ValidationError("primo a parlare non valido");
+  return { seats, first: v.first };
+}
+
 function parseHand(body: any, id: string, ts: number): HandRecord {
   if (!body || typeof body !== "object") throw new ValidationError("richiesta non valida");
   const board = cards(body.board, "board", 0, 5);
@@ -77,6 +87,8 @@ function parseHand(body: any, id: string, ts: number): HandRecord {
     id, ts, bb: num(body.bb, "bb", Number.MIN_VALUE), structure, board, hero, actions,
     players: players.map((p) => (p.known.length ? p : { id: p.id })),
   };
+  const table = parseTable(body.table, names);
+  if (table) record.table = table;
   const impossible = validateHand(record);
   if (impossible) throw new ValidationError(impossible);
   return record;

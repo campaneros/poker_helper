@@ -26,8 +26,8 @@ I test sono controllati con mutazioni: rompere apposta il codice deve far fallir
 
 ```bash
 .venv/bin/python -m pytest -q        # Python: 62 test (banco di prova, vettori, server, push/fold, Deep CFR)
-(cd core && npx vitest run)          # motore: 116 test
-(cd mobile && npx vitest run)        # archivio, guasti del registro e rotte: 84 test
+(cd core && npx vitest run)          # motore: 147 test
+(cd mobile && npx vitest run)        # archivio, guasti del registro, tavolo e rotte: 92 test
 .venv/bin/python -m bench.sim --hands 3000     # simulazione heads-up contro bot
 .venv/bin/python -m bench.table --hands 6000   # simulazione a 3-6 giocatori
 ```
@@ -44,6 +44,7 @@ Obiettivo ridotto, come concordato: il gioco push/fold heads-up (lo small blind 
 | `bench/equity_matrix.ts` | Equity all-in tra le 169 classi di mani, con le combinazioni esatte (card removal). Si esegue con il motore TypeScript. |
 | `bench/pushfold.py` | Soluzione **esatta** (CFR+) per ogni stack da 2 a 25 bb. Sfruttabilità sotto 0,00001 bb: è il riferimento di verità. |
 | `bench/deep_cfr.py` | Deep CFR con reti neurali (rimpianti e strategia media), confrontato con la soluzione esatta. |
+| `core/src/table.ts` | **Il tavolo**: l'ordine dei giocatori e chi parla per primo prima del flop; da lì ricava bottone, bui, turni, strada di ogni azione, piatto, quanto devi chiamare e chi ha rilanciato per ultimo e di quanto. Tocchi un giocatore e dici cosa fa (fold, check, call, puntata o rilancio «a X» con scorciatoie ½ / ¾ / piatto, all-in). Se salti qualcuno, chi doveva parlare prima è segnato fold (check se non doveva nulla). La mano salvata porta con sé i posti e viene riprodotta dal motore a ogni salvataggio o correzione: turni, azioni e strade devono tornare. Gli stack non sono tracciati, quindi le side pot non sono divise (il totale del piatto è giusto). |
 | `core/src/multiway.ts` | **Shove con 2 o più avversari** (preflop, fino a 15 bb, nessun rilancio prima di te): la rete non spinge mai in questi spot e nessuna soluzione li copre, quindi lo shove è valutato direttamente. Ogni avversario chiama con un range dedotto dalla larghezza del Nash heads-up a quella profondità, ristretto in base al numero di avversari e scalato dal suo VPIP; l'equity contro ogni possibile insieme di chiamanti viene da una sola passata Monte Carlo. È una **stima, non un equilibrio**, e l'interfaccia lo dice con l'EV in bb e il suo errore. In torneo il rischio è pesato col bubble factor. Non sono modellati side pot, azioni già fatte nella mano e posizioni a destra. L'all-in diventa il consiglio principale solo se il suo EV batte fold, call e rilanci della policy. |
 | `bench/vs_teacher.py` | Confronta le decisioni dell'advisor con il Nash nello stesso spot. |
 | `bench/export_pushfold.py`, `core/pushfold.json`, `core/src/pushfold.ts` | La soluzione esatta portata nell'app (63 KB): in heads-up, preflop, tra 2 e 25 bb, come small blind o come big blind contro un all-in, il consiglio principale **è** il Nash (SPINGI ALL-IN / CHIAMA / FOLD, con la sua probabilità) e la fonte è dichiarata. In torneo (stack e premi inseriti) lo stesso spot viene **risolto sul telefono con l'ICM** (`core/src/icmpushfold.ts`, circa 35 ms, matrice di equity `core/equity169.json` da 140 KB): il consiglio dice "Nash con ICM" e riporta quanto la soluzione dista da un equilibrio. Senza dati del torneo vale la tabella in chip. |

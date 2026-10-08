@@ -60,23 +60,22 @@
 </section>
 
 <section>
-  <h2>Azioni della mano</h2>
-  <div class="grid">
-    <label>Chi<select id="logWho"></select></label>
-    <label>Azione
-      <select id="logAct">
-        <option value="fold">Fold</option><option value="check">Check</option><option value="call">Call</option>
-        <option value="bet">Bet</option><option value="raise">Raise</option><option value="allin">All-in</option>
-      </select></label>
-    <label>Importo<input id="logAmt" type="number" inputmode="decimal" min="0" placeholder="chips"></label>
-  </div>
-  <div class="row"><button id="logAdd">Aggiungi azione</button></div>
+  <h2>Tavolo da gioco</h2>
+  <p id="tableHint" class="mute"></p>
+  <div id="table" class="table"></div>
+  <div id="seatMenu" class="seat-menu" hidden></div>
+  <h3>Azioni della mano</h3>
   <ol id="log" class="log"></ol>
   <div class="row">
     <button id="logUndo" class="ghost">Annulla ultima</button>
     <button id="saveHand">Salva mano</button>
   </div>
   <p id="notice" class="mute" role="status"></p>
+</section>
+
+<section>
+  <h2>Storico delle mani</h2>
+  <ul id="handLog" class="hand-log"></ul>
 </section>
 
 <section>

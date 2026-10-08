@@ -55,6 +55,23 @@ h3{font-size:.8rem;color:var(--mute);margin:12px 0 6px;font-weight:600}
 .log{padding-left:20px;margin:8px 0;font-size:.9rem}.log li{margin:2px 0}
 .player{display:grid;gap:6px;padding:8px 0;border-bottom:1px solid var(--line)}
 .player .row{margin-top:0}
+.table{position:relative;width:100%;max-width:440px;aspect-ratio:1/1.05;margin:8px auto}
+.felt{position:absolute;inset:16% 9%;border-radius:50%;background:#1b5e3a;border:5px solid #6d4c1f;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:#fff;text-align:center;padding:0 10px}
+.felt .pot{font-size:1.05rem;font-weight:700}.felt .cards{font-size:.95rem;min-height:1.2em}.felt .mute{color:#d8f0df;font-size:.75rem}
+.seat{position:absolute;transform:translate(-50%,-50%);width:70px;min-height:52px;padding:2px 3px;border-radius:12px;display:grid;gap:0;line-height:1.15;text-align:center;font-size:.72rem;border-width:2px}
+.seat strong{font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.seat .badges{display:flex;justify-content:center;gap:2px;min-height:12px;font-size:.62rem;font-weight:700}
+.seat .badges b{background:var(--acc);color:#fff;border-radius:6px;padding:0 4px}
+.seat.hero{border-color:var(--acc)}.seat.folded{opacity:.45}.seat.turn{outline:3px solid #f9a825;outline-offset:1px}
+.seat.picked{background:var(--line)}
+.seat-menu{border:1px solid var(--line);border-radius:10px;padding:8px;margin:8px 0;display:grid;gap:6px}
+.seat-menu header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:0;border:0}
+.seat-menu .acts,.seat-menu .sizes{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:6px}
+.seat-menu button,.seat-menu input,.seat-menu select{min-height:44px}
+.hand-log{list-style:none;padding:0;margin:0;display:grid;gap:6px}
+.hand-card{border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:.85rem}
+.hand-card summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
+.hand-card p{margin:3px 0}
 .grid13{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:1px;margin:6px 0}
 .grid13 .cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:.5rem;line-height:1;border-radius:2px;overflow:hidden;user-select:none}
 .grid13 .cell:not(.on){opacity:.45}

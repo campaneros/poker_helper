@@ -6,6 +6,7 @@ import type { PushFoldTable } from "../../core/src/pushfold.js";
 import equity169 from "../../core/equity169.json";
 import pushFold from "../../core/pushfold.json";
 import weights from "../../core/weights.json";
+import * as tableEngine from "../../core/src/table.js";
 import { createLocalApi, type StorageLike } from "./localApi.js";
 
 /** localStorage can be missing or throw (restricted contexts): fall back to memory for the session. */
@@ -21,6 +22,7 @@ function safeStorage(): StorageLike {
   }
 }
 
+(window as unknown as { POKER_TABLE: typeof tableEngine }).POKER_TABLE = tableEngine; // the shared UI drives the table with it
 (window as unknown as { POKER_NATIVE: boolean }).POKER_NATIVE = true; // tells the shared UI not to register the web service worker
 const api = createLocalApi(safeStorage(), weights as Weights, pushFold as PushFoldTable, equity169 as EquityMatrix);
 const realFetch = window.fetch.bind(window);
