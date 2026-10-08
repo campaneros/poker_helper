@@ -195,7 +195,9 @@ function renderStyles() {
 /* ---------- opponents ---------- */
 const ACTIONS = [["none", "Nessuna / check"], ["call", "Call"], ["bet", "Bet"], ["raise", "Raise"]];
 const SIZES = [[0.33, "1/3 piatto"], [0.5, "1/2 piatto"], [0.66, "2/3 piatto"], [1, "piatto"], [1.5, "overbet"]];
-const newOpp = (player_id) => ({ uid: ++state.uid, player_id, action: "none", bet_frac: 0.66, known: [null, null], folded: false });
+const newOpp = (player_id) => ({ uid: ++state.uid, player_id, action: "none", bet_frac: 0.66, known: [null, null], folded: false, villain: "" });
+/** The stacks typed for the tournament, as numbers (hero first). */
+const tournamentStacks = () => $("tStacks").value.split(/[,\s;]+/).filter(Boolean).map(Number).filter((x) => x >= 0);
 
 function renderOpps() {
   $("opps").replaceChildren(...state.opps.map((o) => {
@@ -216,6 +218,10 @@ function renderOpps() {
           onchange: (e) => { o.action = e.target.value; sizeLabel.hidden = !["bet", "raise"].includes(o.action); },
         }, ...ACTIONS.map(([v, t]) => h("option", { value: v, selected: v === o.action }, t)))),
         sizeLabel),
+      $("structure").value === "tournament" && tournamentStacks().length > 2 ? h("label", {}, "Quale stack della lista?", h("select", {
+        "aria-label": "Stack dell'avversario nella lista del torneo", onchange: (e) => (o.villain = e.target.value),
+      }, h("option", { value: "" }, "Il più grande"),
+        ...tournamentStacks().slice(1).map((v, i) => h("option", { value: String(i + 1), selected: String(i + 1) === o.villain }, `Stack ${i + 2}: ${fmt(v)}`)))) : null,
       h("div", { class: "known" }, h("span", { class: "tag" }, "Carte mostrate"),
         slotButton(`k${o.uid}_0`, "Prima carta mostrata", " small"), slotButton(`k${o.uid}_1`, "Seconda carta mostrata", " small")));
   }));
@@ -282,7 +288,9 @@ async function saveHand() {
 }
 
 /* ---------- advice ---------- */
-const SOURCE_NAMES = { net: "rete neurale", teacher: "policy EV", nash: "Nash esatto (push/fold)" };
+const SOURCE_NAMES = {
+  net: "rete neurale", teacher: "policy EV", nash: "Nash esatto (push/fold)", nash_icm: "Nash con ICM (push/fold)",
+};
 const ACTION_IT = { fold: "FOLD", check: "CHECK", call: "CALL", bet: "BET", raise: "RAISE A", "all-in": "ALL-IN" };
 
 function buildRequest() {
@@ -313,7 +321,8 @@ function buildRequest() {
     const stacks = list("tStacks"), payouts = list("tPays");
     if (stacks.length < 2 || !payouts.length || [...stacks, ...payouts].some((x) => !(x >= 0)))
       throw new Error("Torneo: inserisci gli stack di tutti i giocatori e i premi.");
-    req.tournament = { stacks, payouts };
+    const chosen = active.length === 1 ? active[0].villain : "";
+    req.tournament = { stacks, payouts, ...(chosen ? { villain: Number(chosen) } : {}) };
   }
   return { req, active };
 }
@@ -340,8 +349,9 @@ function nashBlock(n) {
     h("h2", {}, "Nash push/fold, heads-up"),
     h("p", { class: "big " + (n.decision === "fold" ? "fold" : "go") }, NASH_WORDS[n.decision]),
     h("p", { class: "mute" },
-      `${n.hand} · ${who} · ${fmt(n.depth)} bb effettivi · ${mixed ? `strategia mista: ${pct(n.probability)} ${n.role === "small_blind" ? "spinge" : "chiama"}` : "soluzione esatta"}`),
+      `${n.hand} · ${who} · ${fmt(n.depth)} bb effettivi · ${mixed ? `strategia mista: ${pct(n.probability)} ${n.role === "small_blind" ? "spinge" : "chiama"}` : n.icm ? "calcolata per questo torneo (ICM)" : "soluzione esatta"}`),
     h("p", { class: "mute" }, "Vale se l'avversario gioca in modo ottimale."
+      + (n.icm ? ` Tiene conto di tutti gli stack e dei premi${n.gap > 0.001 ? " (soluzione approssimata: " + (n.gap * 100).toFixed(2) + "% del montepremi di scarto)" : ""}.` : "")
       + (n.caveat === "icm" ? " Torneo: ignora l'ICM, vicino alla bolla può cambiare." : "")));
 }
 
@@ -390,7 +400,8 @@ $("clearCards").onclick = () => {
   for (const o of state.opps) o.known = [null, null];
   renderAll();
 };
-$("structure").onchange = (e) => { $("tourney").hidden = e.target.value !== "tournament"; };
+$("structure").onchange = (e) => { $("tourney").hidden = e.target.value !== "tournament"; renderOpps(); };
+$("tStacks").addEventListener("input", renderOpps);
 $("addOpp").onclick = () => {
   if (state.opps.length >= 9) return;
   state.opps.push(newOpp($("addSel").value || null));

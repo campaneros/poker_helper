@@ -6,6 +6,7 @@ import {
   CALL, PRIOR, RAISE, SIZES, actionMask, betAmount, features, foldToBet, rangeFraction, teacher, teacherProbs,
   type OppAction, type OppStats, type State, type TeacherResult,
 } from "./policy.js";
+import { icmPushFoldAdvice, type EquityMatrix } from "./icmpushfold.js";
 import { pushFoldAdvice, type PushFoldAdvice, type PushFoldTable } from "./pushfold.js";
 import { buildPosterior, effectiveFraction, fractionRange, topClasses, type ActionRecord } from "./range.js";
 
@@ -89,7 +90,7 @@ export interface AdviseRequest {
   position: number;
   opponents: OppInput[];
   dead?: string[]; // cards seen but out of play (mucked, flashed)
-  tournament?: { stacks: number[]; payouts: number[] };
+  tournament?: { stacks: number[]; payouts: number[]; villain?: number }; // villain: index in stacks of the opponent
   budgetMs?: number;
 }
 
@@ -99,7 +100,7 @@ export interface AdviseResult extends SimResult {
     amount: number;
     probs: { fold_check: number; call: number; raise: number };
     evs: (number | null)[];
-    source: "net" | "teacher" | "nash";
+    source: "net" | "teacher" | "nash" | "nash_icm";
     bubble_factor: number;
   };
   opponents: { range_pct: number; top: { hand: string; pct: number }[]; contradiction?: boolean }[];
@@ -110,18 +111,20 @@ const STREET_BY_BOARD: Record<number, number> = { 0: 0, 3: 1, 4: 2, 5: 3 };
 
 /** Where the Nash table is exact (cash, heads-up, short stack) it replaces the heuristic advice: one answer, not two.
  * Shove/call/fold come with the table's probability; amounts are all-in, the call, or nothing. */
-function nashAdvice(n: PushFoldAdvice, req: AdviseRequest): AdviseResult["advice"] {
+function nashAdvice(n: PushFoldAdvice, req: AdviseRequest, bubbleFactor: number): AdviseResult["advice"] {
   const p = n.probability;
   const sb = n.role === "small_blind";
   const action = n.decision === "shove" ? "all-in" : n.decision;
   const amount = n.decision === "shove" ? req.stack : n.decision === "call" ? Math.min(req.to_call, req.stack) : 0;
   return {
-    action, amount, evs: [null, null, null], source: "nash", bubble_factor: 1,
+    action, amount, evs: [null, null, null], source: n.icm ? "nash_icm" : "nash", bubble_factor: bubbleFactor,
     probs: sb ? { fold_check: 1 - p, call: 0, raise: p } : { fold_check: 1 - p, call: p, raise: 0 },
   };
 }
 
-export function advise(req: AdviseRequest, weights?: Weights, rng?: Rng, pushFold?: PushFoldTable): AdviseResult {
+export function advise(
+  req: AdviseRequest, weights?: Weights, rng?: Rng, pushFold?: PushFoldTable, icmMatrix?: EquityMatrix,
+): AdviseResult {
   const hero = req.hero.map(parse);
   const board = req.board.map(parse);
   const street = STREET_BY_BOARD[board.length];
@@ -171,14 +174,19 @@ export function advise(req: AdviseRequest, weights?: Weights, rng?: Rng, pushFol
   };
   const pred = predict(s, weights);
   const [action, amount] = label(s, argmax(pred.probs), pred.size_frac);
-  const nash = pushFold && pushFoldAdvice(pushFold, [hero[0], hero[1]], {
+  const spot = {
     bb: req.bb, pot: req.pot, to_call: req.to_call, stack: req.stack, structure: req.structure, tournament: !!t,
-  }, req.opponents.length, board.length);
+  };
+  // in a tournament the spot is solved WITH the ICM; the chip-EV table is only the fallback (and carries a caveat)
+  const icm = t && icmMatrix
+    ? icmPushFoldAdvice(icmMatrix, [hero[0], hero[1]], spot, t, req.opponents.length, board.length) : null;
+  const chip = pushFold ? pushFoldAdvice(pushFold, [hero[0], hero[1]], spot, req.opponents.length, board.length) : null;
+  const nash = icm ?? chip;
   return {
     ...sim,
     ...(nash ? { pushfold: nash } : {}),
-    // the table is chip-EV: in a tournament the network (which prices the ICM) keeps the lead and Nash is shown as a note
-    advice: nash && !t ? nashAdvice(nash, req) : {
+    // chip-EV table in a tournament: the network (which prices the ICM) keeps the lead and Nash is only a note
+    advice: icm ? nashAdvice(icm, req, bf) : nash && !t ? nashAdvice(nash, req, 1) : {
       action, amount,
       probs: { fold_check: pred.probs[0], call: pred.probs[1], raise: pred.probs[2] },
       evs: pred.teacher.evs.map((e) => (Number.isFinite(e) ? e : null)),

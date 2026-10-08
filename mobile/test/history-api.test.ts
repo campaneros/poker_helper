@@ -283,3 +283,42 @@ describe("Nash push/fold through the on-device API", () => {
     expect(bad.status).toBe(422);
   });
 });
+
+describe("Nash with the ICM through the on-device API", () => {
+  const chip = JSON.parse(readFileSync(new URL("../../core/pushfold.json", import.meta.url), "utf8"));
+  const matrix = JSON.parse(readFileSync(new URL("../../core/equity169.json", import.meta.url), "utf8"));
+  const bubble = { stacks: [20, 20, 10], payouts: [1, 1, 0] };
+  const smallBlind = { hero: ["Ah", "As"], board: [], bb: 2, pot: 3, to_call: 1, stack: 19, position: 0.95, opponents: [{}], tournament: bubble };
+  const facing = { ...smallBlind, hero: ["Kc", "Td"], pot: 22, to_call: 18, stack: 18 };
+  const ask = async (body: object, withMatrix = true) =>
+    createLocalApi(memory(), weights, chip, withMatrix ? matrix : undefined)("POST", "/advise", body);
+
+  it("small blind on the bubble shoves aces, and the answer says it was solved for this tournament", async () => {
+    const r = (await ask(smallBlind)).body as any;
+    expect(r.advice).toMatchObject({ action: "all-in", amount: 19, source: "nash_icm" });
+    expect(r.pushfold).toMatchObject({ icm: true, decision: "shove" });
+    expect(r.pushfold.gap).toBeLessThan(1e-4);
+  });
+
+  it("a call that chips make is a fold on the bubble; the same hand calls when the prize is winner-take-all", async () => {
+    expect(((await ask(facing)).body as any).advice).toMatchObject({ action: "fold", source: "nash_icm" });
+    expect(((await ask({ ...facing, tournament: { stacks: [20, 20], payouts: [1] } })).body as any).advice).toMatchObject({ action: "call" });
+  });
+
+  it("the opponent can be chosen from the stack list, and a bad choice is rejected", async () => {
+    const t = { stacks: [20, 12, 30], payouts: [50, 30, 20] };
+    const largest = ((await ask({ ...facing, tournament: t })).body as any).pushfold;
+    const chosen = ((await ask({ ...facing, tournament: { ...t, villain: 1 } })).body as any).pushfold;
+    expect(largest.depth).toBe(10);
+    expect(chosen.depth).toBe(6);
+    for (const villain of [0, 3, 1.5, -1, "1"]) {
+      expect((await ask({ ...facing, tournament: { ...t, villain } })).status, String(villain)).toBe(422);
+    }
+  });
+
+  it("without the matrix it falls back to the chip-EV table with its caveat", async () => {
+    const r = (await ask(smallBlind, false)).body as any;
+    expect(r.pushfold.caveat).toBe("icm");
+    expect(r.advice.source).not.toBe("nash_icm");
+  });
+});

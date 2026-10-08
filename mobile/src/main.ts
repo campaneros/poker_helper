@@ -1,7 +1,9 @@
 /** Installs the on-device /api/* shim (fetch override). build-web.mjs imports this BEFORE the shared UI,
  * because the UI calls /api/players as soon as it loads. */
 import type { Weights } from "../../core/src/advisor.js";
+import type { EquityMatrix } from "../../core/src/icmpushfold.js";
 import type { PushFoldTable } from "../../core/src/pushfold.js";
+import equity169 from "../../core/equity169.json";
 import pushFold from "../../core/pushfold.json";
 import weights from "../../core/weights.json";
 import { createLocalApi, type StorageLike } from "./localApi.js";
@@ -20,7 +22,7 @@ function safeStorage(): StorageLike {
 }
 
 (window as unknown as { POKER_NATIVE: boolean }).POKER_NATIVE = true; // tells the shared UI not to register the web service worker
-const api = createLocalApi(safeStorage(), weights as Weights, pushFold as PushFoldTable);
+const api = createLocalApi(safeStorage(), weights as Weights, pushFold as PushFoldTable, equity169 as EquityMatrix);
 const realFetch = window.fetch.bind(window);
 
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {

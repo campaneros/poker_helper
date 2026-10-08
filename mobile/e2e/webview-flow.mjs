@@ -140,6 +140,23 @@ const inPage = `(async () => {
   out.checks.mainAdviceIsNash = /ALL-IN/.test($('#result .big').textContent) && /Nash esatto/.test($('#result').innerText);
   $('#clearCards').click();
 
+  // 7c) tournament: the ICM solution becomes the main advice, and the opponent can be picked from the stack list
+  setValue($('#structure'), 'tournament');
+  $('#tStacks').value = '20, 20, 10'; $('#tStacks').dispatchEvent(new Event('input', { bubbles: true }));
+  $('#tPays').value = '1, 1, 0';
+  const villainSelect = $$('.opp')[0].querySelector('select[aria-label^="Stack dell"]');
+  out.checks.villainChoiceShown = !!villainSelect;
+  setValue(villainSelect, '2'); // the 10-chip stack: the effective stack becomes 5 big blinds
+  pickCard('Ah'); pickCard('As');
+  $('#result').replaceChildren();
+  $('#go').click();
+  await wait(() => $('#result .nash'), 'ICM push/fold block');
+  out.icm = $('#result .nash').innerText.replace(/\\n+/g, ' | ');
+  out.checks.icmAdviceShown = /ALL-IN/.test($('#result .big').textContent) && /Nash con ICM/.test($('#result').innerText) && /tutti gli stack/.test(out.icm);
+  out.checks.chosenOpponentReachesTheEngine = sent.advise[sent.advise.length - 1].tournament?.villain === 2 && /5 bb effettivi/.test(out.icm);
+  setValue($('#structure'), 'no_limit');
+  $('#clearCards').click();
+
   // 8) error path: asking for advice with no cards shows a message instead of crashing
   $('#go').click();
   await wait(() => $('#result .err'), 'error message');

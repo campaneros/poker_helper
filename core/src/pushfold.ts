@@ -19,6 +19,8 @@ export interface PushFoldAdvice {
   probability: number; // of shoving (small blind) or calling (big blind)
   decision: "shove" | "call" | "fold";
   caveat?: "icm"; // chip-EV table used in a tournament
+  icm?: boolean; // true when solved WITH the ICM for this exact spot (icmpushfold.ts)
+  gap?: number; // ICM solutions only: Nash gap as a share of the prize pool (0 = exact equilibrium)
 }
 
 export interface SpotContext {
@@ -54,7 +56,7 @@ export function lookup(table: PushFoldTable, role: PushFoldRole, hand: string, d
 }
 
 /** Which of the two spots this is, and at what effective stack; null when it is neither. */
-function detectSpot(ctx: SpotContext): { role: PushFoldRole; depth: number } | null {
+export function detectSpot(ctx: SpotContext): { role: PushFoldRole; depth: number } | null {
   const near = (x: number, bbs: number) => Math.abs(x - bbs * ctx.bb) <= TOLERANCE_BB * ctx.bb;
   // small blind to act: has posted half a big blind, must put in another half to complete
   if (near(ctx.pot, 1.5) && near(ctx.to_call, 0.5)) return { role: "small_blind", depth: (ctx.stack + 0.5 * ctx.bb) / ctx.bb };

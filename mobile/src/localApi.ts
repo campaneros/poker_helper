@@ -2,6 +2,7 @@
  * All data lives in the append-only event log (store.ts); players' stats are derived from recorded hands. */
 import { advise, type AdviseRequest, type OppInput, type Weights } from "../../core/src/advisor.js";
 import { parse } from "../../core/src/cards.js";
+import type { EquityMatrix } from "../../core/src/icmpushfold.js";
 import type { PushFoldTable } from "../../core/src/pushfold.js";
 import { deriveStats, type HandAction, type HandRecord } from "../../core/src/history.js";
 import { PRIOR, type OppAction, type OppStats } from "../../core/src/policy.js";
@@ -121,7 +122,11 @@ function parseAdvise(body: any, state: StoreState): AdviseRequest {
   if (body.tournament) {
     const stacks = list(body.tournament.stacks, "stack", 2, 9).map((x) => num(x, "stack", 0));
     const payouts = list(body.tournament.payouts, "premi", 1, 9).map((x) => num(x, "premio", 0));
-    tournament = { stacks, payouts };
+    const villain = body.tournament.villain;
+    if (villain !== undefined && !(Number.isInteger(villain) && villain >= 1 && villain < stacks.length)) {
+      throw new ValidationError("avversario del torneo non valido");
+    }
+    tournament = { stacks, payouts, ...(villain !== undefined ? { villain } : {}) };
   }
   return {
     hero, board, structure, tournament, opponents, ...(dead.length ? { dead } : {}),
@@ -138,7 +143,7 @@ const ok = (body: unknown): ApiResult => ({ status: 200, body });
 const fail = (status: number, msg: string): ApiResult => ({ status, body: { detail: status === 422 ? [{ msg }] : msg } });
 const INPUT_ERROR = /carta|carte|board|duplicate|servono|mostrate/;
 
-export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?: PushFoldTable) {
+export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?: PushFoldTable, icmMatrix?: EquityMatrix) {
   const save = (...events: StoreEvent[]): void => appendEvents(storage, events);
   /** The player as the log says AFTER a write: never the copy read before it. */
   const refreshed = (id: string) => {
@@ -152,7 +157,7 @@ export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?
       const now = Date.now();
       const route = `${method} ${path}`;
 
-      if (route === "POST /advise") return ok(advise(parseAdvise(body, state), weights, undefined, pushFold));
+      if (route === "POST /advise") return ok(advise(parseAdvise(body, state), weights, undefined, pushFold, icmMatrix));
 
       // ----- players -----
       if (route === "GET /players") return ok([...state.players.values()].map((p) => publicPlayer(state, p)));
