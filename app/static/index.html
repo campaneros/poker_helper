@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Poker Advisor</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f1a14">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><h1>♠ Poker Advisor</h1>
+  <select id="structure" aria-label="Formato">
+    <option value="no_limit">Cash No-Limit</option>
+    <option value="pot_limit">Cash Pot-Limit</option>
+    <option value="tournament">Torneo (ICM)</option>
+  </select>
+</header>
+<main>
+<section>
+  <h2>Carte</h2>
+  <div id="slots"></div>
+  <div id="picker" role="group" aria-label="Seleziona carta"></div>
+  <h3>Carte viste fuori gioco</h3>
+  <div id="deadRow" class="chips"></div>
+  <button id="clearCards" class="ghost">Azzera carte</button>
+</section>
+
+<section>
+  <h2>Tavolo</h2>
+  <div class="grid">
+    <label>Big blind<input id="bb" type="number" inputmode="decimal" value="2" min="0.01"></label>
+    <label>Piatto<input id="pot" type="number" inputmode="decimal" value="6" min="0"></label>
+    <label>Da chiamare<input id="toCall" type="number" inputmode="decimal" value="0" min="0"></label>
+    <label>Il tuo stack<input id="stack" type="number" inputmode="decimal" value="200" min="1"></label>
+    <label>Posizione
+      <select id="position">
+        <option value="0.0">Blinds</option><option value="0.1">Early</option>
+        <option value="0.4">Middle</option><option value="0.7">Late (CO)</option>
+        <option value="0.95" selected>Button</option>
+      </select></label>
+  </div>
+  <div id="tourney" hidden>
+    <label>Stack di tutti (il tuo per primo, separati da virgola)
+      <input id="tStacks" placeholder="1500, 3000, 800, 2200"></label>
+    <label>Premi (1°, 2°, …)
+      <input id="tPays" placeholder="50, 30, 20"></label>
+  </div>
+</section>
+
+<section>
+  <h2>Avversari nella mano</h2>
+  <div id="opps"></div>
+  <div class="row">
+    <select id="addSel" aria-label="Giocatore da aggiungere"></select>
+    <button id="addOpp">Aggiungi alla mano</button>
+  </div>
+</section>
+
+<section>
+  <h2>Azioni della mano</h2>
+  <div class="grid">
+    <label>Chi<select id="logWho"></select></label>
+    <label>Azione
+      <select id="logAct">
+        <option value="fold">Fold</option><option value="check">Check</option><option value="call">Call</option>
+        <option value="bet">Bet</option><option value="raise">Raise</option><option value="allin">All-in</option>
+      </select></label>
+    <label>Importo<input id="logAmt" type="number" inputmode="decimal" min="0" placeholder="chips"></label>
+  </div>
+  <div class="row"><button id="logAdd">Aggiungi azione</button></div>
+  <ol id="log" class="log"></ol>
+  <div class="row">
+    <button id="logUndo" class="ghost">Annulla ultima</button>
+    <button id="saveHand">Salva mano</button>
+  </div>
+  <p id="notice" class="mute" role="status"></p>
+</section>
+
+<section>
+  <h2>Giocatori e stili</h2>
+  <ul id="roster"></ul>
+  <div class="row"><input id="newName" placeholder="Nome nuovo giocatore" maxlength="40">
+    <button id="newPlayer">Crea</button></div>
+  <details><summary>Stili di gioco salvati</summary>
+    <ul id="styleList"></ul>
+    <div class="grid">
+      <label>Nome<input id="styleName" maxlength="40" placeholder="Es. Il fish del giovedì"></label>
+      <label>VPIP %<input id="styleVpip" type="number" inputmode="decimal" min="0" max="100" value="30"></label>
+      <label>PFR %<input id="stylePfr" type="number" inputmode="decimal" min="0" max="100" value="15"></label>
+      <label>Aggressività<input id="styleAf" type="number" inputmode="decimal" min="0" max="20" step="0.1" value="1.5"></label>
+    </div>
+    <div class="row"><button id="styleAdd">Crea stile</button></div>
+    <p id="styleMsg" class="mute" role="status"></p>
+  </details>
+</section>
+
+<button id="go" class="primary">Consiglia ⏎</button>
+<section id="result" hidden aria-live="polite"></section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

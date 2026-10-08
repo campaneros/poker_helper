@@ -1,0 +1,35 @@
+# environments and dependencies
+.venv/
+node_modules/
+__pycache__/
+.pytest_cache/
+
+# local tooling state
+.claude/
+
+# the user's own data (players, hands) — never part of the code
+data/
+
+# build output: the APK is built locally and not committed
+dist/
+*.apk
+*.aab
+mobile/www/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/android/capacitor-cordova-android-plugins/
+mobile/android/app/src/main/assets/public/
+mobile/android/app/src/main/assets/capacitor.config.json
+mobile/android/app/src/main/assets/capacitor.plugins.json
+mobile/android/app/src/main/res/xml/config.xml
+
+# signing keys and credentials
+*.keystore
+*.jks
+keystore.properties
+.env
+.env.*
+
+.DS_Store
