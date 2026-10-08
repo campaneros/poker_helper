@@ -7,8 +7,8 @@ __pycache__/
 # local tooling state
 .claude/
 
-# the user's own data (players, hands) — never part of the code
-data/
+# the user's own data (players, hands) — never part of the code. Anchored: bench/data holds committed fixtures
+/data/
 
 # build output: the APK is built locally and not committed
 dist/

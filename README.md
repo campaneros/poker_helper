@@ -25,7 +25,7 @@ Le parti nate dopo (range, carte note, storico) si verificano contro enumerazion
 I test sono controllati con mutazioni: rompere apposta il codice deve far fallire almeno un test.
 
 ```bash
-.venv/bin/python -m pytest -q        # Python: 53 test (banco di prova, vettori, server)
+.venv/bin/python -m pytest -q        # Python: 62 test (banco di prova, vettori, server, push/fold, Deep CFR)
 (cd core && npx vitest run)          # motore: 49 test
 (cd mobile && npx vitest run)        # archivio e rotte: 59 test
 .venv/bin/python -m bench.sim --hands 3000     # simulazione heads-up contro bot
@@ -33,6 +33,27 @@ I test sono controllati con mutazioni: rompere apposta il codice deve far fallir
 ```
 
 Se si cambia di proposito policy, pesi o equity: `python -m bench.export_golden` e `python -m bench.export_weights`.
+
+## Deep CFR (heads-up, stack corti)
+
+Obiettivo ridotto, come concordato: il gioco push/fold heads-up (lo small blind spinge o folda, il big blind chiama o folda).
+
+| File | Cosa fa |
+|---|---|
+| `bench/equity_matrix.ts` | Equity all-in tra le 169 classi di mani, con le combinazioni esatte (card removal). Si esegue con il motore TypeScript. |
+| `bench/pushfold.py` | Soluzione **esatta** (CFR+) per ogni stack da 2 a 25 bb. Sfruttabilità sotto 0,00001 bb: è il riferimento di verità. |
+| `bench/deep_cfr.py` | Deep CFR con reti neurali (rimpianti e strategia media), confrontato con la soluzione esatta. |
+| `bench/vs_teacher.py` | Confronta le decisioni dell'advisor con il Nash nello stesso spot. |
+
+Cosa risulta (stack da 3 a 20 bb, anche profondità mai viste in addestramento):
+- Il Deep CFR si avvicina al Nash ma non lo raggiunge: sfruttabilità media 0,03 bb contro 0,99 di "spingi e chiama sempre" (circa 3%),
+  con range che differiscono di pochi punti percentuali. In un gioco così piccolo il metodo tabellare è esatto: il Deep CFR
+  qui serve a convalidare la tecnica, non a fare meglio.
+- Contro il Nash, come small blind a 4-20 bb, l'advisor **non folda mai** e dai 6 bb in su **non propone mai l'all-in**
+  (le sue puntate arrivano a 1,5 volte il piatto). Non è per forza un errore, perché il gioco del Nash non permette di limpare,
+  ma mostra che a stack corti manca una raccomandazione di spinta.
+- I numeri tornano con le fonti: a 9 bb il big blind chiama circa il 42% secondo noi, 42,7% secondo
+  [PokerStrategy](https://www.pokerstrategy.com/strategy/sit-and-go/1779/).
 
 ## Cosa è dimostrato e cosa no
 

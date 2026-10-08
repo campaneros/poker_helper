@@ -1,0 +1,153 @@
+{
+ "iterations": 400,
+ "train": [
+  {
+   "depth": 3.0,
+   "exploitability": 0.022144982769728885,
+   "exact_exploitability": 1.5465116007251645e-07,
+   "shove_range": 0.7868992907569644,
+   "exact_shove_range": 0.7807784145595154,
+   "call_range": 0.9200319898389223,
+   "exact_call_range": 0.9193835354967349,
+   "shove_disagreement": 0.015082956259426848,
+   "call_disagreement": 0.027149321266968326
+  },
+  {
+   "depth": 5.0,
+   "exploitability": 0.024384722763329536,
+   "exact_exploitability": 3.0281158228118166e-07,
+   "shove_range": 0.7211354400844595,
+   "exact_shove_range": 0.714707847976072,
+   "call_range": 0.6360102291099536,
+   "exact_call_range": 0.6197097988874879,
+   "shove_disagreement": 0.021116138763197588,
+   "call_disagreement": 0.01809954751131222
+  },
+  {
+   "depth": 8.0,
+   "exploitability": 0.027777428556391287,
+   "exact_exploitability": 3.9492265663243487e-07,
+   "shove_range": 0.6207919226816068,
+   "exact_shove_range": 0.6173827908186879,
+   "call_range": 0.46518345966058616,
+   "exact_call_range": 0.44965345575991683,
+   "shove_disagreement": 0.024132730015082957,
+   "call_disagreement": 0.0030165912518853697
+  },
+  {
+   "depth": 10.0,
+   "exploitability": 0.029032605727595945,
+   "exact_exploitability": 6.096636860353222e-07,
+   "shove_range": 0.5646984432241001,
+   "exact_shove_range": 0.5821633888224329,
+   "call_range": 0.39079897938405767,
+   "exact_call_range": 0.3732341474238687,
+   "shove_disagreement": 0.03619909502262444,
+   "call_disagreement": 0.0030165912518853697
+  },
+  {
+   "depth": 12.0,
+   "exploitability": 0.029786894056321636,
+   "exact_exploitability": 4.1135025755090204e-07,
+   "shove_range": 0.5219198562890336,
+   "exact_shove_range": 0.5324273643668237,
+   "call_range": 0.3426864241217551,
+   "exact_call_range": 0.33031682712129246,
+   "shove_disagreement": 0.01809954751131222,
+   "call_disagreement": 0.00904977375565611
+  },
+  {
+   "depth": 15.0,
+   "exploitability": 0.03556850829320228,
+   "exact_exploitability": 5.996404782993014e-07,
+   "shove_range": 0.4697908928918443,
+   "exact_shove_range": 0.4572036461580819,
+   "call_range": 0.30059884946237053,
+   "exact_call_range": 0.28477268619909246,
+   "shove_disagreement": 0.0030165912518853697,
+   "call_disagreement": 0.0030165912518853697
+  },
+  {
+   "depth": 20.0,
+   "exploitability": 0.042899255158431154,
+   "exact_exploitability": 7.055491188512342e-07,
+   "shove_range": 0.40040194984317545,
+   "exact_shove_range": 0.40271191439386206,
+   "call_range": 0.23861570826866474,
+   "exact_call_range": 0.21719452460561336,
+   "shove_disagreement": 0.033182503770739065,
+   "call_disagreement": 0.0030165912518853697
+  }
+ ],
+ "unseen": [
+  {
+   "depth": 4.0,
+   "exploitability": 0.025873776662096545,
+   "exact_exploitability": 1.3136012352865656e-07,
+   "shove_range": 0.7532274107424877,
+   "exact_shove_range": 0.737556788138423,
+   "call_range": 0.7468539160278768,
+   "exact_call_range": 0.7405732064745919,
+   "shove_disagreement": 0.024132730015082957,
+   "call_disagreement": 0.03619909502262444
+  },
+  {
+   "depth": 7.0,
+   "exploitability": 0.027301634496675414,
+   "exact_exploitability": 2.6966630103930633e-07,
+   "shove_range": 0.6544854584519455,
+   "exact_shove_range": 0.6591459843695561,
+   "call_range": 0.5122035553912052,
+   "exact_call_range": 0.4841642473550453,
+   "shove_disagreement": 0.01809954751131222,
+   "call_disagreement": 0.015082956259426848
+  },
+  {
+   "depth": 9.0,
+   "exploitability": 0.028630128060496862,
+   "exact_exploitability": 3.5279011389999226e-07,
+   "shove_range": 0.5916957113004063,
+   "exact_shove_range": 0.6046538552352666,
+   "call_range": 0.4262790363675284,
+   "exact_call_range": 0.40696120607785286,
+   "shove_disagreement": 0.03619909502262444,
+   "call_disagreement": 0.012066365007541479
+  },
+  {
+   "depth": 11.0,
+   "exploitability": 0.029108736281349884,
+   "exact_exploitability": 3.637102598541553e-07,
+   "shove_range": 0.5432900195958186,
+   "exact_shove_range": 0.5444951976568454,
+   "call_range": 0.3622433432710791,
+   "exact_call_range": 0.35432852633587075,
+   "shove_disagreement": 0.01809954751131222,
+   "call_disagreement": 0.012066365007541479
+  },
+  {
+   "depth": 17.0,
+   "exploitability": 0.03883881786103874,
+   "exact_exploitability": 1.0940736657194527e-06,
+   "shove_range": 0.4438384344624313,
+   "exact_shove_range": 0.42757149659952703,
+   "call_range": 0.2746864747969633,
+   "exact_call_range": 0.24833279364084657,
+   "shove_disagreement": 0.024132730015082957,
+   "call_disagreement": 0.01809954751131222
+  }
+ ],
+ "naive_exploitability": {
+  "3.0": 0.05674117302305537,
+  "5.0": 0.24773868891146197,
+  "8.0": 0.652180153292086,
+  "10.0": 0.9461211758549573,
+  "12.0": 1.2491411757318311,
+  "15.0": 1.7141802431741928,
+  "20.0": 2.4985214598659975,
+  "4.0": 0.1381069065164527,
+  "7.0": 0.5099971402714931,
+  "9.0": 0.797138304429464,
+  "11.0": 1.0971210744810747,
+  "17.0": 2.0270010579000832
+ }
+}
