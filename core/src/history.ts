@@ -23,6 +23,26 @@ export interface HandRecord {
   actions: HandAction[]; // in order of play
 }
 
+const BOARD_FOR_STREET = [0, 3, 4, 5];
+
+/** Why a hand record cannot be true, or null. Used before a recorded or amended hand is stored: the stats are derived
+ * from these actions, so an impossible sequence would silently skew them. */
+export function validateHand(hand: Pick<HandRecord, "board" | "actions" | "players">): string | null {
+  const out = new Set<string>();
+  let street = 0;
+  for (const a of hand.actions) {
+    if (a.street < street) return "le azioni devono essere in ordine di strada";
+    street = a.street;
+    if (hand.board.length < BOARD_FOR_STREET[a.street]) {
+      return `un'azione al ${["preflop", "flop", "turn", "river"][a.street]} richiede ${BOARD_FOR_STREET[a.street]} carte di board`;
+    }
+    if (out.has(a.player)) return "un giocatore che ha foldato non può agire ancora";
+    if (a.type === "fold") out.add(a.player);
+  }
+  for (const p of hand.players) if ((p.known?.length ?? 0) > 2) return "al massimo due carte mostrate per giocatore";
+  return null;
+}
+
 /** Counters from before the action log existed (or from the quick manual recorder). */
 export interface LegacyCounts { hands: number; vpip: number; pfr: number; bets: number; calls: number }
 

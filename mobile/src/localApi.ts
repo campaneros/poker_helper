@@ -4,11 +4,11 @@ import { advise, type AdviseRequest, type OppInput, type Weights } from "../../c
 import { parse } from "../../core/src/cards.js";
 import type { EquityMatrix } from "../../core/src/icmpushfold.js";
 import type { PushFoldTable } from "../../core/src/pushfold.js";
-import { deriveStats, type HandAction, type HandRecord } from "../../core/src/history.js";
+import { deriveStats, validateHand, type HandAction, type HandRecord } from "../../core/src/history.js";
 import { PRIOR, type OppAction, type OppStats } from "../../core/src/policy.js";
 import type { ActionRecord, ActionType } from "../../core/src/range.js";
 import {
-  allStyles, appendEvents, loadState, styleById, type PlayerState, type StorageLike, type StoreEvent, type StoreState,
+  EVENTS_KEY, StorageWriteError, allStyles, appendEvents, loadState, styleById, type PlayerState, type StorageLike, type StoreEvent, type StoreState,
 } from "./store.js";
 
 export type { StorageLike } from "./store.js";
@@ -73,11 +73,21 @@ function parseHand(body: any, id: string, ts: number): HandRecord {
   if (structure !== "no_limit" && structure !== "pot_limit") throw new ValidationError("formato non valido");
   const names = new Set([HERO, ...players.map((p) => p.id)]);
   const actions = parseActions(body.actions, (a) => (typeof a?.player === "string" && names.has(a.player) ? a.player : undefined));
-  return {
+  const record: HandRecord = {
     id, ts, bb: num(body.bb, "bb", Number.MIN_VALUE), structure, board, hero, actions,
     players: players.map((p) => (p.known.length ? p : { id: p.id })),
   };
+  const impossible = validateHand(record);
+  if (impossible) throw new ValidationError(impossible);
+  return record;
 }
+
+/** A client-chosen id makes saving idempotent: a double tap or a retry cannot record the hand twice. */
+const handId = (v: unknown): string | undefined => {
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || !/^[\w-]{4,40}$/.test(v)) throw new ValidationError("id mano non valido");
+  return v;
+};
 
 // ---------- derived views ----------
 const priorOf = (state: StoreState, p: PlayerState): OppStats => {
@@ -213,8 +223,13 @@ export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?
         const limit = num(body?.limit, "limite", 1, 200, 50);
         return ok([...state.hands.values()].sort((a, b) => b.ts - a.ts).slice(0, limit));
       }
+      if (route === "GET /storage") {
+        const text = storage.getItem(EVENTS_KEY) ?? "";
+        return ok({ bytes: text.length, events: text.split("\n").filter(Boolean).length, skipped: state.skipped });
+      }
       if (route === "POST /hands") {
-        const hand = parseHand(body, shortId("h_"), now);
+        const id = handId(body?.id) ?? shortId("h_");
+        const hand = parseHand(body, id, state.hands.get(id)?.ts ?? now);
         save({ t: "hand", hand, ts: now });
         return ok(hand);
       }
@@ -231,6 +246,7 @@ export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?
       }
       return fail(404, "non trovato");
     } catch (e) {
+      if (e instanceof StorageWriteError) return fail(507, e.message);
       if (e instanceof ValidationError || (e instanceof Error && INPUT_ERROR.test(e.message))) {
         return fail(422, (e as Error).message);
       }

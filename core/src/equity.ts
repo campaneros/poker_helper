@@ -31,9 +31,9 @@ export interface WeightedRange { weights: Float64Array }
 /** Either a top-fraction range (legacy) or an explicit weighted range (posterior / known cards). */
 export type OppSpec = number | WeightedRange;
 
-interface Sampler { a: number[]; b: number[]; cum: number[]; total: number }
+export interface Sampler { a: number[]; b: number[]; cum: number[]; total: number }
 
-function makeSampler(w: Float64Array): Sampler {
+export function makeSampler(w: Float64Array): Sampler {
   const s: Sampler = { a: [], b: [], cum: [], total: 0 };
   for (let x = 0; x < 52; x++) {
     for (let y = x + 1; y < 52; y++) {
@@ -45,7 +45,7 @@ function makeSampler(w: Float64Array): Sampler {
 }
 
 /** Draw a holding proportionally to its weight, avoiding cards already used; null if none is free. */
-function drawWeighted(s: Sampler, rng: Rng, used: Uint8Array): [Card, Card] | null {
+export function drawWeighted(s: Sampler, rng: Rng, used: Uint8Array): [Card, Card] | null {
   const n = s.cum.length;
   if (!n) return null;
   for (let t = 0; t < REJECTION_TRIES; t++) {

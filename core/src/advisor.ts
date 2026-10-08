@@ -7,8 +7,9 @@ import {
   type OppAction, type OppStats, type State, type TeacherResult,
 } from "./policy.js";
 import { icmPushFoldAdvice, type EquityMatrix } from "./icmpushfold.js";
+import { multiwayPushAdvice, type MultiwayAdvice } from "./multiway.js";
 import { pushFoldAdvice, type PushFoldAdvice, type PushFoldTable } from "./pushfold.js";
-import { buildPosterior, effectiveFraction, fractionRange, topClasses, type ActionRecord } from "./range.js";
+import { buildPosterior, classShares, effectiveFraction, fractionRange, topClasses, type ActionRecord } from "./range.js";
 
 export interface Weights {
   sha256: string;
@@ -100,11 +101,13 @@ export interface AdviseResult extends SimResult {
     amount: number;
     probs: { fold_check: number; call: number; raise: number };
     evs: (number | null)[];
-    source: "net" | "teacher" | "nash" | "nash_icm";
+    source: "net" | "teacher" | "nash" | "nash_icm" | "multiway";
     bubble_factor: number;
   };
-  opponents: { range_pct: number; top: { hand: string; pct: number }[]; contradiction?: boolean }[];
+  // grid: probability share (percent, 0.01 resolution) of every hand class in the opponent's range, for the 13x13 map
+  opponents: { range_pct: number; top: { hand: string; pct: number }[]; grid: Record<string, number>; contradiction?: boolean }[];
   pushfold?: PushFoldAdvice; // heads-up short-stack Nash push/fold, when the spot is one it covers
+  multiway?: MultiwayAdvice; // approximate open-shove EV with 2+ opponents, when the spot is one it covers
 }
 
 const STREET_BY_BOARD: Record<number, number> = { 0: 0, 3: 1, 4: 2, 5: 3 };
@@ -140,6 +143,7 @@ export function advise(
 
   const fracs: number[] = [], aggrs: number[] = [], folds: number[] = [];
   const specs: OppSpec[] = [], tops: { hand: string; pct: number }[][] = [], contradictions: boolean[] = [];
+  const grids: Record<string, number>[] = [];
   req.opponents.forEach((o, i) => {
     const st = { ...PRIOR, ...o.stats };
     st.pfr = Math.min(st.pfr, st.vpip);
@@ -158,6 +162,7 @@ export function advise(
     }
     fracs.push(frac); specs.push(spec); contradictions.push(contradiction);
     tops.push(topClasses(shape));
+    grids.push(Object.fromEntries([...classShares(shape)].map(([k, v]) => [k, Math.round(v * 1e4) / 100])));
     aggrs.push(st.af);
     folds.push(foldToBet(st));
   });
@@ -182,18 +187,29 @@ export function advise(
     ? icmPushFoldAdvice(icmMatrix, [hero[0], hero[1]], spot, t, req.opponents.length, board.length) : null;
   const chip = pushFold ? pushFoldAdvice(pushFold, [hero[0], hero[1]], spot, req.opponents.length, board.length) : null;
   const nash = icm ?? chip;
+  // two or more opponents: no table covers it and the network cannot shove, so the shove is priced directly
+  const multiway = pushFold && !nash ? multiwayPushAdvice(
+    pushFold, [hero[0], hero[1]], spot, req.opponents.map((o, i) => ({ stats: o.stats, known: knownBy[i] })),
+    board.length, [...deadCards], t, { rng, budgetMs: Math.min(req.budgetMs ?? 800, 500) }) : null;
+  const bestEv = Math.max(...pred.teacher.evs.filter((e) => Number.isFinite(e)));
+  const shoveWins = multiway?.decision === "shove" && multiway.ev > bestEv; // vs fold (0), call and the usual raises
   return {
     ...sim,
     ...(nash ? { pushfold: nash } : {}),
+    ...(multiway ? { multiway } : {}),
     // chip-EV table in a tournament: the network (which prices the ICM) keeps the lead and Nash is only a note
-    advice: icm ? nashAdvice(icm, req, bf) : nash && !t ? nashAdvice(nash, req, 1) : {
+    advice: shoveWins ? {
+      action: "all-in", amount: req.stack, probs: { fold_check: 0, call: 0, raise: 1 },
+      evs: [pred.teacher.evs[0], Number.isFinite(pred.teacher.evs[1]) ? pred.teacher.evs[1] : null, multiway.ev],
+      source: "multiway", bubble_factor: bf,
+    } : icm ? nashAdvice(icm, req, bf) : nash && !t ? nashAdvice(nash, req, 1) : {
       action, amount,
       probs: { fold_check: pred.probs[0], call: pred.probs[1], raise: pred.probs[2] },
       evs: pred.teacher.evs.map((e) => (Number.isFinite(e) ? e : null)),
       source: pred.source, bubble_factor: bf,
     },
     opponents: fracs.map((f, i) => ({
-      range_pct: Math.round(f * 1000) / 10, top: tops[i], ...(contradictions[i] ? { contradiction: true } : {}),
+      range_pct: Math.round(f * 1000) / 10, top: tops[i], grid: grids[i], ...(contradictions[i] ? { contradiction: true } : {}),
     })),
   };
 }

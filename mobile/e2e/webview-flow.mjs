@@ -104,6 +104,16 @@ const inPage = `(async () => {
   out.likely = $$('#result .opp-range').map((p) => p.textContent);
   out.checks.shownHandReported = out.likely.some((t) => /KK 100%/.test(t));
   out.checks.rangeShownForEachOpponent = out.likely.length === 2;
+  const maps = $$('#result details.range-map');
+  out.checks.rangeMapPerOpponent = maps.length === 2 && maps.every((m) => m.querySelectorAll('.cell').length === 169);
+  const kk = maps[0].querySelector('.cell[data-hand="KK"]'), aa = maps[0].querySelector('.cell[data-hand="AA"]');
+  out.checks.rangeMapPinsShownHand = kk.dataset.pct === '100' && aa.dataset.pct === '0'
+    && maps[0].querySelectorAll('.cell.on').length === 1;
+  maps[1].open = true;
+  const cell = maps[1].querySelector('.cell[data-hand="AKs"]');
+  cell.click();
+  out.checks.rangeMapCellExplains = /AKs: .*% del range/.test(maps[1].querySelector('[aria-live]').textContent);
+  out.checks.rangeMapFitsScreen = rect(maps[1].querySelector('.grid13')).width <= window.innerWidth;
   const req = sent.advise[0];
   out.checks.adviceCarriesTableInfo = !!req && req.opponents[0].known?.length === 2 && req.opponents[1].actions?.length === 1
     && req.opponents[1].actions[0].type === 'raise' && req.dead?.length === 1;
@@ -124,6 +134,29 @@ const inPage = `(async () => {
   out.history = $('#roster li .hand').innerText.replace(/\\n+/g, ' | ');
   out.checks.historyShowsAction = /raise 12/.test(out.history) && /Preflop|Flop/.test(out.history);
 
+  // 7a) amend the saved hand: change the amount, try an impossible edit (refused, nothing stored), then fix it
+  $$('#roster li button').find((b) => b.getAttribute('aria-label') === 'Modifica questa mano').click();
+  await wait(() => $('#roster li .editor'), 'hand editor');
+  const editorRows = () => $$('#roster li .editor .edit-action');
+  const typeInto = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+  out.checks.editorShowsTheAction = editorRows().length === 1 && editorRows()[0].querySelector('input[aria-label="Importo"]').value === '12';
+  typeInto(editorRows()[0].querySelector('input[aria-label="Importo"]'), '18');
+  $$('#roster li .editor button').find((b) => b.textContent === '+ Azione').click();
+  out.checks.editorAddsARow = editorRows().length === 2;
+  const e2eId = [...editorRows()[1].querySelector('select[aria-label$="giocatore"]').options].find((o) => o.textContent === 'E2E').value;
+  setValue(editorRows()[0].querySelector('select[aria-label$="tipo"]'), 'fold');
+  setValue(editorRows()[1].querySelector('select[aria-label$="giocatore"]'), e2eId);
+  $('#roster li .editor button[aria-label="Salva le modifiche alla mano"]').click();
+  await wait(() => /foldato/.test($('#roster li .editor .err').textContent), 'impossible edit refused');
+  out.checks.impossibleEditRefused = !$('#roster li .editor button[aria-label="Salva le modifiche alla mano"]').disabled;
+  editorRows()[1].querySelector('button[aria-label^="Elimina l"]').click();
+  setValue(editorRows()[0].querySelector('select[aria-label$="tipo"]'), 'raise');
+  $('#roster li .editor button[aria-label="Salva le modifiche alla mano"]').click();
+  await wait(() => /Mano modificata/.test($('#notice').textContent) && $('#roster li .hand:not(.editor)'), 'amended hand saved');
+  out.amended = $('#roster li .hand').innerText.replace(/\\n+/g, ' | ');
+  out.checks.amendShowsNewAmount = /raise 18/.test(out.amended) && !/raise 12/.test(out.amended);
+  out.checks.amendKeepsOneHand = $$('#roster li .hand').length === 1 && /1 mani/.test($('#roster li').textContent);
+
   // 7b) heads-up short stack: the Nash push/fold block appears (small blind, 10 bb, aces); with two opponents it must not
   pickCard('Ah'); pickCard('As');
   $('#bb').value = 2; $('#pot').value = 3; $('#toCall').value = 1; $('#stack').value = 19;
@@ -131,6 +164,9 @@ const inPage = `(async () => {
   $('#go').click();
   await wait(() => $('#result .big'), 'advice with two opponents');
   out.checks.nashHiddenMultiway = !$('#result .nash');
+  out.multiway = ($('#result .multiway') || {innerText: ''}).innerText.replace(/\\n+/g, ' | ');
+  out.checks.multiwayShown = /SPINGERE CONVIENE/.test(out.multiway) && /AA/.test(out.multiway) && /9\.5 bb/.test(out.multiway)
+    && /ALL-IN/.test($('#result .big').textContent) && /approssimata/.test($('#result').innerText);
   $$('.opp')[1].querySelector('header button').click();
   $('#result').replaceChildren();
   $('#go').click();

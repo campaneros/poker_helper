@@ -5,7 +5,7 @@ import { Card, DECK, evaluate, parse } from "../src/cards.js";
 import { seededRng, simulate } from "../src/equity.js";
 import { PRIOR, rangeFraction } from "../src/policy.js";
 import {
-  buildPosterior, effectiveFraction, priorRange, topClasses, updateRange, type ActionRecord,
+  buildPosterior, classShares, effectiveFraction, fractionRange, priorRange, topClasses, updateRange, type ActionRecord,
 } from "../src/range.js";
 import { handPct, pairKey } from "../src/ranges.js";
 
@@ -242,5 +242,43 @@ describe("advise with actions, shown cards and dead cards", () => {
       { ...base, opponents: [{ known: ["Kd", "Kc", "Kh"] }] },
     ];
     for (const req of bad) expect(() => advise(req, undefined, seededRng(1))).toThrow();
+  });
+});
+
+describe("class shares (the 13x13 map)", () => {
+  const dead = new Set<number>();
+  it("a uniform range gives each class its combo count over 1326, and the shares sum to one", () => {
+    const shares = classShares(priorRange(dead));
+    expect(shares.size).toBe(169);
+    expect([...shares.values()].reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    expect(shares.get("AA")).toBeCloseTo(6 / 1326, 12);
+    expect(shares.get("AKs")).toBeCloseTo(4 / 1326, 12);
+    expect(shares.get("AKo")).toBeCloseTo(12 / 1326, 12);
+  });
+  it("cards out of the deck remove their combinations, known cards pin the class", () => {
+    const aces = new Set([parse("As"), parse("Ah")]);
+    expect(classShares(priorRange(aces)).get("AA")).toBeCloseTo(1 / (1326 - 2 * 50 - 1), 12); // only AdAc remains
+    const pinned = classShares(priorRange(new Set(), [parse("Kd"), parse("Kc")]));
+    expect([...pinned.keys()]).toEqual(["KK"]);
+    expect(pinned.get("KK")).toBeCloseTo(1, 12);
+  });
+  it("agrees with the top-classes list", () => {
+    const shares = classShares(fractionRange(0.1, [], dead));
+    const best = [...shares.entries()].sort((a, b) => b[1] - a[1])[0];
+    expect(topClasses(fractionRange(0.1, [], dead), 1)[0]).toEqual({ hand: best[0], pct: Math.round(best[1] * 1000) / 10 });
+  });
+});
+
+describe("the grid in the advice", () => {
+  const base = { hero: ["Ah", "As"] as [string, string], board: [], structure: "no_limit" as const, bb: 2, pot: 12, to_call: 6, stack: 200, position: 0.8, budgetMs: 200 };
+  it("every opponent carries a share per class, summing to 100%, and shown cards pin it", () => {
+    const r = advise({ ...base, opponents: [{}, { known: ["Kd", "Kc"] }] }, undefined, seededRng(1));
+    for (const o of r.opponents) expect(Object.values(o.grid).reduce((a, b) => a + b, 0)).toBeGreaterThan(99.9);
+    expect(r.opponents[1].grid).toEqual({ KK: 100 });
+    expect(Object.keys(r.opponents[0].grid).length).toBeGreaterThan(40);
+    // the aces in hero's hand block AA (one combination left); the other opponent's shown kings block KK the same way
+    expect(r.opponents[0].grid.AA).toBeCloseTo(r.opponents[0].grid.KK, 6);
+    const alone = advise({ ...base, opponents: [{}] }, undefined, seededRng(1)).opponents[0].grid;
+    expect(alone.KK / alone.AA).toBeCloseTo(6, 0); // 6 kings combinations against 1 ace combination
   });
 });

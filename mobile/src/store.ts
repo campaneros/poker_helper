@@ -72,10 +72,17 @@ export function readEvents(storage: StorageLike): { events: StoreEvent[]; skippe
   return { events, skipped };
 }
 
+/** The phone could not store the change (quota full, storage cleared or blocked). Nothing was written. */
+export class StorageWriteError extends Error {}
+
 export function appendEvents(storage: StorageLike, add: readonly StoreEvent[]): void {
-  const current = storage.getItem(EVENTS_KEY) ?? "";
-  const separator = current && !current.endsWith("\n") ? "\n" : ""; // a truncated last line must not swallow the new event
-  storage.setItem(EVENTS_KEY, current + separator + add.map(line).join("\n") + "\n");
+  try {
+    const current = storage.getItem(EVENTS_KEY) ?? "";
+    const separator = current && !current.endsWith("\n") ? "\n" : ""; // a truncated last line must not swallow the new event
+    storage.setItem(EVENTS_KEY, current + separator + add.map(line).join("\n") + "\n");
+  } catch {
+    throw new StorageWriteError("Memoria del telefono piena o non scrivibile: la modifica NON è stata salvata.");
+  }
 }
 
 const noCounts = (): LegacyCounts => ({ hands: 0, vpip: 0, pfr: 0, bets: 0, calls: 0 });

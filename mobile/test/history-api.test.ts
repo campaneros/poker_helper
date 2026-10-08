@@ -204,6 +204,13 @@ describe("advice using actions, shown cards and dead cards", () => {
     expect(informed.opponents[0].top.length).toBe(5);
   });
 
+  it("every opponent comes with the class shares behind the 13x13 map", async () => {
+    const { call } = setup();
+    const r = (await call("POST", "/advise", { ...base, opponents: [{ known: ["Kd", "Kc"] }, {}] })).body as any;
+    expect(r.opponents[0].grid).toEqual({ KK: 100 });
+    expect(Object.keys(r.opponents[1].grid).length).toBeGreaterThan(40);
+  });
+
   it("shown cards pin the opponent's hand", async () => {
     const { call } = setup();
     const r = (await call("POST", "/advise", { ...base, opponents: [{ known: ["Kd", "Kc"] }] })).body as any;
@@ -281,6 +288,41 @@ describe("Nash push/fold through the on-device API", () => {
     expect(t.advice.source).not.toBe("nash"); // chip-EV table: the network, which prices the ICM, keeps the lead
     const bad = await createLocalApi(memory(), weights, table)("POST", "/advise", { ...spot, hero: ["Ah", "Ah"] });
     expect(bad.status).toBe(422);
+  });
+});
+
+describe("multiway shove through the on-device API", () => {
+  const table = JSON.parse(readFileSync(new URL("../../core/pushfold.json", import.meta.url), "utf8"));
+  const spot = { hero: ["Ah", "As"], board: [], bb: 2, pot: 3, to_call: 1, stack: 20, position: 0.3, opponents: [{}, {}, {}], budgetMs: 5000 };
+  const ask = async (body: object, withTable = true) =>
+    (await createLocalApi(memory(), weights, withTable ? table : undefined)("POST", "/advise", body)).body as any;
+
+  it("aces shove three-handed at 10 bb, and the answer says it is an estimate", async () => {
+    const r = await ask(spot);
+    expect(r.multiway).toMatchObject({ hand: "AA", depth: 10, decision: "shove", approximate: true });
+    expect(r.multiway.call_probs).toHaveLength(3);
+    expect(r.advice).toMatchObject({ action: "all-in", amount: 20, source: "multiway" });
+    expect(r.pushfold).toBeUndefined(); // the exact heads-up table does not apply
+  });
+  it("uses each player's own style: a nit table calls less than a fish table", async () => {
+    const store = memory();
+    const api = createLocalApi(store, weights, table);
+    const seat = async (name: string, style: string) => {
+      const id = ((await api("POST", "/players", { name })).body as { id: string }).id;
+      await api("PUT", `/players/${id}/style`, { style_id: style });
+      return { player_id: id };
+    };
+    const nits = [await seat("N1", "builtin:nit"), await seat("N2", "builtin:nit"), await seat("N3", "builtin:nit")];
+    const fish = [await seat("F1", "builtin:fish"), await seat("F2", "builtin:fish"), await seat("F3", "builtin:fish")];
+    const a = (await api("POST", "/advise", { ...spot, opponents: nits })).body as any;
+    const b = (await api("POST", "/advise", { ...spot, opponents: fish })).body as any;
+    expect(a.multiway.nobody_calls).toBeGreaterThan(b.multiway.nobody_calls);
+  });
+  it("is absent without the table, heads-up, postflop or deep-stacked", async () => {
+    expect((await ask(spot, false)).multiway).toBeUndefined();
+    expect((await ask({ ...spot, opponents: [{}] })).multiway).toBeUndefined();
+    expect((await ask({ ...spot, board: ["2c", "7d", "9h"] })).multiway).toBeUndefined();
+    expect((await ask({ ...spot, stack: 80 })).multiway).toBeUndefined();
   });
 });
 

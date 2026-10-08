@@ -27,8 +27,8 @@ Installazione sul telefono: `adb install -r dist/PokerAdvisor-1.0.apk`, oppure c
 ## Test
 
 ```bash
-(cd ../core && npx vitest run)       # motore: parità con Python, range, storico, Nash, ICM   (95)
-npx vitest run                       # archivio a eventi, rotte, storico, Nash, ICM (67)
+(cd ../core && npx vitest run)       # motore: parità con Python, range, storico, Nash, ICM, shove multiway   (116)
+npx vitest run                       # archivio a eventi, guasti del registro, rotte, storico, Nash, ICM, multiway (84)
 node e2e/webview-flow.mjs 9222       # interfaccia completa nella WebView (vedi intestazione del file)
 ```
 
@@ -38,6 +38,6 @@ build di test; con Chrome da desktop usa una porta di debug diversa per ogni ese
 ## Dati sul telefono
 
 Registro a eventi in `localStorage` (`poker.events.v1`), un evento per riga con checksum: una riga danneggiata o
-troncata fa perdere solo quell'evento. Annulla, modifica ed eliminazione di una mano sono nuovi eventi, non
+troncata fa perdere solo quell'evento (resta nel file ma viene ignorata). Se la memoria del telefono è piena la modifica viene rifiutata con un messaggio (errore 507) e il registro resta identico; salvare due volte la stessa mano non la duplica. Annulla, modifica ed eliminazione di una mano sono nuovi eventi, non
 sovrascritture. I backup di Android sono disattivati (`allowBackup=false`): i dati non lasciano il telefono, ma
 non si recuperano da un backup dopo una disinstallazione.

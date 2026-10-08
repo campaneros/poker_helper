@@ -122,8 +122,8 @@ const label = (a: Card, b: Card): string => {
   return RANKS[hi] + RANKS[lo] + (hi === lo ? "" : suitOf(a) === suitOf(b) ? "s" : "o");
 };
 
-/** The most likely hand classes (AA, AKs, QJo...) with their probability share. */
-export function topClasses(w: Float64Array, n = 5): { hand: string; pct: number }[] {
+/** Probability share of every starting-hand class (AA, AKs, QJo...) in a range; classes with no weight are absent. */
+export function classShares(w: Float64Array): Map<string, number> {
   const byClass = new Map<string, number>();
   for (let a = 0; a < 52; a++) {
     for (let b = a + 1; b < 52; b++) {
@@ -131,6 +131,12 @@ export function topClasses(w: Float64Array, n = 5): { hand: string; pct: number 
       if (v > 0) byClass.set(label(a, b), (byClass.get(label(a, b)) ?? 0) + v);
     }
   }
+  return byClass;
+}
+
+/** The most likely hand classes (AA, AKs, QJo...) with their probability share. */
+export function topClasses(w: Float64Array, n = 5): { hand: string; pct: number }[] {
+  const byClass = classShares(w);
   return [...byClass.entries()].sort((x, y) => y[1] - x[1]).slice(0, n)
     .map(([hand, v]) => ({ hand, pct: Math.round(v * 1000) / 10 }));
 }

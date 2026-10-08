@@ -55,10 +55,20 @@ h3{font-size:.8rem;color:var(--mute);margin:12px 0 6px;font-weight:600}
 .log{padding-left:20px;margin:8px 0;font-size:.9rem}.log li{margin:2px 0}
 .player{display:grid;gap:6px;padding:8px 0;border-bottom:1px solid var(--line)}
 .player .row{margin-top:0}
+.grid13{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:1px;margin:6px 0}
+.grid13 .cell{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:.5rem;line-height:1;border-radius:2px;overflow:hidden;user-select:none}
+.grid13 .cell:not(.on){opacity:.45}
+.range-map summary{cursor:pointer;min-height:44px;display:flex;align-items:center}
+.edit-actions{display:grid;gap:8px;margin:6px 0}
+.edit-action{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;border:1px solid var(--line);border-radius:8px;padding:6px}
+.edit-action .edit-move{grid-column:1/-1;display:flex;gap:6px}.edit-action .edit-move button{flex:1;min-height:44px}
+.editor label{display:grid;gap:2px;margin:6px 0;font-size:.8rem}
+.editor input,.editor select,.editor button{min-height:44px}
 .history{display:grid;gap:8px}.hand{border-left:3px solid var(--line);padding-left:8px;font-size:.85rem}
 #styleList{list-style:none;padding:0;display:grid;gap:6px;font-size:.85rem}
 #styleList li{display:flex;justify-content:space-between;align-items:center;gap:6px}
 .opp-range{margin:4px 0;font-size:.9rem}
-.nash{border:2px solid var(--acc);border-radius:10px;padding:4px 10px;margin:10px 0}
-.nash .big{font-size:1.6rem}
+.nash,.multiway{border:2px solid var(--acc);border-radius:10px;padding:4px 10px;margin:10px 0}
+.multiway{border-style:dashed}
+.nash .big,.multiway .big{font-size:1.6rem}
 @media (max-width:480px){#slots{gap:4px}.slot{font-size:1rem}}

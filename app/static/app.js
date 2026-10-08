@@ -152,10 +152,14 @@ function renderPlayers() {
         }, "Elimina")),
       history);
   }));
+  // the roster is rebuilt after every change: an open history must come back open, or the user loses their place
+  const open = state.players.findIndex((p) => p.id === state.historyFor);
+  if (open >= 0) toggleHistory(state.players[open], $("roster").children[open].querySelector(".history"));
 }
 
 async function toggleHistory(p, box) {
   box.hidden = !box.hidden;
+  state.historyFor = box.hidden ? null : p.id;
   if (box.hidden) return;
   box.replaceChildren(h("p", { class: "mute" }, "Carico…"));
   try {
@@ -177,10 +181,79 @@ function historyEntry(p, hand, box) {
     h("div", { class: "mute" }, new Date(hand.ts).toLocaleString("it") + (hand.board.length ? " · board " + hand.board.map(pretty).join(" ") : "")),
     h("div", {}, byStreet.length ? byStreet.join(" → ") : "Nessuna azione registrata"),
     shown?.length ? h("div", {}, "Ha mostrato: " + shown.map(pretty).join(" ")) : null,
+    h("button", { class: "ghost", "aria-label": "Modifica questa mano", onclick: (e) => e.target.closest(".hand").replaceWith(handEditor(p, hand, box)) }, "Modifica mano"),
     h("button", {
       class: "ghost", "aria-label": "Elimina questa mano",
-      onclick: async () => { await send("DELETE", "/hands/" + hand.id); await refreshAll(); box.hidden = true; await toggleHistory(p, box); },
+      onclick: async () => { await send("DELETE", "/hands/" + hand.id); await refreshAll(); },
     }, "Elimina mano"));
+}
+
+/* ---------- amend a saved hand ---------- */
+const ACTION_TYPES = ["fold", "check", "call", "bet", "raise", "allin"];
+const parseCards = (t) => t.split(/[\s,]+/).filter(Boolean).map((c) => c[0].toUpperCase() + c.slice(1).toLowerCase());
+const nameOfId = (id) => (id === "hero" ? "Tu" : state.players.find((p) => p.id === id)?.name ?? id.replace("anon:", "Avversario "));
+
+/** A form that replaces the hand in the history. The server re-validates everything (impossible sequences are refused),
+ * and saving is an amend event: the original time is kept, so the recency weighting of the stats does not move. */
+function handEditor(p, hand, box) {
+  const draft = hand.actions.map((a) => ({ ...a }));
+  const err = h("p", { class: "err", role: "alert" });
+  const opt = (value, text, sel) => h("option", { value, selected: sel }, text);
+  const sel = (label, options, current, onchange) => h("select", { "aria-label": label, onchange: (e) => onchange(e.target.value) },
+    ...options.map(([v, t]) => opt(v, t, String(v) === String(current))));
+  const field = (label, input) => h("label", {}, label, input);
+  const bb = h("input", { type: "number", inputmode: "decimal", step: "any", value: hand.bb, "aria-label": "Big blind" });
+  const structure = h("select", { "aria-label": "Formato" }, opt("no_limit", "No limit", hand.structure !== "pot_limit"), opt("pot_limit", "Pot limit", hand.structure === "pot_limit"));
+  const cardsInput = (label, cards) => h("input", { type: "text", autocapitalize: "off", autocomplete: "off", spellcheck: "false", placeholder: "es. Ah Kd 7c", value: (cards ?? []).join(" "), "aria-label": label });
+  const board = cardsInput("Board", hand.board);
+  const hero = cardsInput("Le tue carte", hand.hero);
+  const shown = hand.players.map((pl) => ({ id: pl.id, input: cardsInput(`Carte mostrate da ${nameOfId(pl.id)}`, pl.known) }));
+  const who = [["hero", "Tu"], ...hand.players.map((pl) => [pl.id, nameOfId(pl.id)])];
+  const rows = h("div", { class: "edit-actions" });
+  const drawRows = () => rows.replaceChildren(...draft.map((a, i) => {
+    const num = (label, key) => h("input", {
+      type: "number", inputmode: "decimal", step: "any", min: "0", "aria-label": label, placeholder: label, value: a[key] ?? "",
+      oninput: (e) => { if (e.target.value === "") delete a[key]; else a[key] = parseFloat(e.target.value); },
+    });
+    const move = (d) => { const j = i + d; if (j < 0 || j >= draft.length) return; [draft[i], draft[j]] = [draft[j], draft[i]]; drawRows(); };
+    return h("div", { class: "edit-action" },
+      sel(`Azione ${i + 1}: giocatore`, who, a.player, (v) => (a.player = v)),
+      sel(`Azione ${i + 1}: strada`, STREETS.map((n, s) => [s, n]), a.street, (v) => (a.street = +v)),
+      sel(`Azione ${i + 1}: tipo`, ACTION_TYPES.map((t) => [t, ACTION_NAMES[t]]), a.type, (v) => (a.type = v)),
+      num("Importo", "amount"), num("Piatto prima", "pot_before"),
+      h("span", { class: "edit-move" },
+        h("button", { type: "button", "aria-label": `Sposta su l'azione ${i + 1}`, onclick: () => move(-1) }, "↑"),
+        h("button", { type: "button", "aria-label": `Sposta giù l'azione ${i + 1}`, onclick: () => move(1) }, "↓"),
+        h("button", { type: "button", "aria-label": `Elimina l'azione ${i + 1}`, onclick: () => { draft.splice(i, 1); drawRows(); } }, "✕")));
+  }));
+  drawRows();
+  const save = h("button", { type: "button", "aria-label": "Salva le modifiche alla mano" }, "Salva modifiche");
+  const editor = h("div", { class: "hand editor" },
+    h("strong", {}, "Modifica mano"),
+    field("Big blind", bb), field("Formato", structure), field("Board (0, 3, 4 o 5 carte)", board), field("Le tue carte", hero),
+    ...shown.map((s) => field(`Carte mostrate da ${nameOfId(s.id)}`, s.input)),
+    h("strong", {}, "Azioni, in ordine"), rows,
+    h("button", { type: "button", class: "ghost", onclick: () => { draft.push({ player: who[0][0], street: draft.at(-1)?.street ?? 0, type: "check" }); drawRows(); } }, "+ Azione"),
+    err, save,
+    h("button", { type: "button", class: "ghost", onclick: () => { box.hidden = true; toggleHistory(p, box); } }, "Annulla"));
+  save.onclick = async () => {
+    err.textContent = "";
+    save.disabled = true;
+    try {
+      const heroCards = parseCards(hero.value);
+      await send("PUT", "/hands/" + hand.id, {
+        bb: parseFloat(bb.value), structure: structure.value, board: parseCards(board.value), ...(heroCards.length ? { hero: heroCards } : {}),
+        players: shown.map((s) => ({ id: s.id, known: parseCards(s.input.value) })),
+        actions: draft.map((a) => ({ player: a.player, street: a.street, type: a.type, ...(a.amount !== undefined ? { amount: a.amount } : {}), ...(a.pot_before !== undefined ? { pot_before: a.pot_before } : {}) })),
+      });
+      await refreshAll(); // the history reopens by itself, showing the amended hand
+      say("Mano modificata. Le statistiche sono ricalcolate; l'ora originale è rimasta.");
+    } catch (e) {
+      err.textContent = e.message; // the server's reason: impossible sequence, duplicate card, full storage...
+      save.disabled = false;
+    }
+  };
+  return editor;
 }
 
 function renderStyles() {
@@ -265,6 +338,10 @@ function addAction() {
 }
 
 async function saveHand() {
+  const button = $("saveHand");
+  if (button.disabled) return; // a double tap must not record the hand twice
+  button.disabled = true;
+  state.pendingHandId ??= "h_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); // a retry reuses it
   try {
     const board = state.slots.slice(2).filter(Boolean);
     if (![0, 3, 4, 5].includes(board.length)) throw new Error("Il board deve avere 0, 3, 4 o 5 carte consecutive.");
@@ -274,22 +351,26 @@ async function saveHand() {
     const idOf = (who) => (who === "hero" ? "hero" : ids.get(+who.slice(1)));
     const hero = state.slots[0] && state.slots[1] ? [state.slots[0], state.slots[1]] : undefined;
     const hand = await send("POST", "/hands", {
-      bb: num("bb"), structure: $("structure").value === "pot_limit" ? "pot_limit" : "no_limit", board, hero,
+      id: state.pendingHandId, bb: num("bb"), structure: $("structure").value === "pot_limit" ? "pot_limit" : "no_limit", board, hero,
       players: state.opps.map((o) => ({ id: ids.get(o.uid), known: o.known.filter(Boolean) })),
       actions: state.log.map((l) => ({ player: idOf(l.who), street: l.street, type: l.type, amount: l.amount, pot_before: l.pot_before })),
     });
+    state.pendingHandId = null;
     state.slots.fill(null); state.sel = "s0"; state.dead = []; state.log = [];
     for (const o of state.opps) { o.known = [null, null]; o.folded = false; o.action = "none"; }
     await refreshAll();
     say(`Mano salvata (${hand.actions.length} azioni). Le statistiche dei giocatori sono aggiornate.`);
   } catch (e) {
     say(e.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
 /* ---------- advice ---------- */
 const SOURCE_NAMES = {
   net: "rete neurale", teacher: "policy EV", nash: "Nash esatto (push/fold)", nash_icm: "Nash con ICM (push/fold)",
+  multiway: "stima shove multiway (approssimata)",
 };
 const ACTION_IT = { fold: "FOLD", check: "CHECK", call: "CALL", bet: "BET", raise: "RAISE A", "all-in": "ALL-IN" };
 
@@ -355,6 +436,49 @@ function nashBlock(n) {
       + (n.caveat === "icm" ? " Torneo: ignora l'ICM, vicino alla bolla può cambiare." : "")));
 }
 
+/** Open shove with 2+ opponents: an approximate EV, never a solution. The numbers are shown so the caller can judge. */
+function multiwayBlock(m, calls) {
+  const shove = m.decision === "shove";
+  const unsure = Math.abs(m.ev_bb) < 2 * m.se_bb;
+  return h("div", { class: "multiway" },
+    h("h2", {}, "Shove multiway (stima)"),
+    h("p", { class: "big " + (shove ? "go" : "fold") }, shove ? "SPINGERE CONVIENE" : "SPINGERE NON CONVIENE"),
+    h("p", { class: "mute" },
+      `${m.hand} · ${fmt(m.depth)} bb · EV dello shove ${m.ev_bb >= 0 ? "+" : ""}${m.ev_bb.toFixed(2)} bb (±${m.se_bb.toFixed(2)}) rispetto al fold`
+      + ` · nessuno chiama ${pct(m.nobody_calls)}`),
+    h("p", { class: "mute" }, "Chiamano: " + m.call_probs.map((c, i) => `${oppName(calls[i])} ${pct(c)}`).join(" · ")),
+    h("p", { class: "mute" }, "Stima, non equilibrio: ogni avversario chiama in modo indipendente con un range dedotto dalla larghezza del Nash"
+      + " heads-up e dal suo VPIP; le side pot e le azioni già fatte in questa mano non sono modellate."
+      + (m.bubble_factor > 1.01 ? ` Torneo: rischio pesato con bubble factor ${m.bubble_factor.toFixed(2)}.` : "")
+      + (unsure ? " Il valore è dentro l'errore di stima: la scelta è dubbia." : "")));
+}
+
+/** The 13x13 map of an opponent's range: pairs on the diagonal, suited above it, offsuit below. Read-only; tapping a cell
+ * names it. Shade is relative to the most likely class (square root, so rare hands stay visible), and every cell also
+ * carries its label, so colour is never the only signal. */
+function rangeGrid(grid, who) {
+  const order = [...RANKS].reverse(); // A K Q ... 2
+  const label = (i, j) => (i === j ? order[i] + order[j] : i < j ? order[i] + order[j] + "s" : order[j] + order[i] + "o");
+  const top = Math.max(...Object.values(grid), 0.01);
+  const detail = h("p", { class: "mute", "aria-live": "polite" }, "Tocca una cella per vedere la probabilità.");
+  const cells = [];
+  for (let i = 0; i < 13; i++) {
+    for (let j = 0; j < 13; j++) {
+      const name = label(i, j), v = grid[name] ?? 0, t = Math.sqrt(v / top);
+      cells.push(h("div", {
+        class: "cell" + (v > 0 ? " on" : ""), "data-hand": name, "data-pct": v,
+        style: `background:rgba(46,125,50,${(0.08 + 0.92 * t).toFixed(2)});color:${t > 0.55 ? "#fff" : "inherit"}`,
+        onclick: () => { detail.textContent = v > 0 ? `${name}: ${v.toFixed(v < 1 ? 2 : 1)}% del range di ${who}` : `${name}: fuori dal range di ${who}`; },
+      }, name));
+    }
+  }
+  return h("details", { class: "range-map" },
+    h("summary", {}, `Griglia del range di ${who}`),
+    h("div", { class: "grid13", role: "img", "aria-label": `Griglia 13 per 13 del range di ${who}: coppie sulla diagonale, suited sopra, offsuit sotto` }, ...cells),
+    h("p", { class: "mute" }, "Più scuro = più probabile. Coppie sulla diagonale, suited sopra, offsuit sotto."),
+    detail);
+}
+
 function renderResult(r, req, active) {
   const a = r.advice, p = a.probs;
   const label = ACTION_IT[a.action] + (a.amount ? " " + fmt(a.amount) : "");
@@ -368,15 +492,17 @@ function renderResult(r, req, active) {
     h("p", { class: "mute" }, `${req.to_call > 0 ? "Fold" : "Check"} ${(p.fold_check * 100).toFixed(0)}% · Call ${(p.call * 100).toFixed(0)}% · Raise ${(p.raise * 100).toFixed(0)}%`
       + (a.bubble_factor > 1.01 ? ` · bubble factor ${a.bubble_factor.toFixed(2)}` : "")),
     ...(r.pushfold ? [nashBlock(r.pushfold)] : []),
+    ...(r.multiway ? [multiwayBlock(r.multiway, active)] : []),
     h("h2", {}, `Equity ${(r.equity * 100).toFixed(1)}% (vince ${(r.win * 100).toFixed(1)}%)`),
     h("div", { class: "meter" }, h("b", { style: `width:${(r.equity * 100).toFixed(1)}%` })),
     h("h2", { style: "margin-top:12px" }, "Mano finale più probabile"),
     h("table", {}, ...cats.map(([n, v]) => h("tr", {}, h("td", {}, n), h("td", {}, (v * 100).toFixed(1) + "%")))),
     h("h2", { style: "margin-top:12px" }, "Cosa possono avere"),
-    ...r.opponents.map((o, i) => h("p", { class: "opp-range" },
+    ...r.opponents.flatMap((o, i) => [h("p", { class: "opp-range" },
       h("strong", {}, `${oppName(active[i])} (range ${o.range_pct}%): `),
       (o.top ?? []).map((t) => `${t.hand} ${t.pct}%`).join(" · ") || "—",
-      o.contradiction ? h("span", { class: "err" }, " — le azioni registrate non tornano con il suo stile: range non ristretto") : null)),
+      o.contradiction ? h("span", { class: "err" }, " — le azioni registrate non tornano con il suo stile: range non ristretto") : null),
+      o.grid ? rangeGrid(o.grid, oppName(active[i])) : null]),
     h("p", { class: "mute" }, `${r.sims.toLocaleString("it")} simulazioni · ${SOURCE_NAMES[a.source] ?? a.source}`));
   $("result").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
