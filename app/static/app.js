@@ -329,6 +329,21 @@ async function go() {
   }
 }
 
+const NASH_WORDS = { shove: "SPINGI ALL-IN", call: "CHIAMA", fold: "FOLD" };
+
+/** Heads-up short-stack Nash push/fold (exact solution): shown next to the normal advice, which cannot shove. */
+function nashBlock(n) {
+  const who = n.role === "small_blind" ? "small blind" : "big blind contro un all-in";
+  const mixed = n.probability > 0.05 && n.probability < 0.95;
+  return h("div", { class: "nash" },
+    h("h2", {}, "Nash push/fold, heads-up"),
+    h("p", { class: "big " + (n.decision === "fold" ? "fold" : "go") }, NASH_WORDS[n.decision]),
+    h("p", { class: "mute" },
+      `${n.hand} · ${who} · ${fmt(n.depth)} bb effettivi · ${mixed ? `strategia mista: ${pct(n.probability)} ${n.role === "small_blind" ? "spinge" : "chiama"}` : "soluzione esatta"}`),
+    h("p", { class: "mute" }, "Vale se l'avversario gioca in modo ottimale."
+      + (n.caveat === "icm" ? " Torneo: ignora l'ICM, vicino alla bolla può cambiare." : "")));
+}
+
 function renderResult(r, req, active) {
   const a = r.advice, p = a.probs;
   const label = ACTION_IT[a.action] + (a.amount ? " " + fmt(a.amount) : "");
@@ -341,6 +356,7 @@ function renderResult(r, req, active) {
       seg(p.fold_check, "var(--red)"), seg(p.call, "var(--warn)"), seg(p.raise, "var(--acc)")),
     h("p", { class: "mute" }, `${req.to_call > 0 ? "Fold" : "Check"} ${(p.fold_check * 100).toFixed(0)}% · Call ${(p.call * 100).toFixed(0)}% · Raise ${(p.raise * 100).toFixed(0)}%`
       + (a.bubble_factor > 1.01 ? ` · bubble factor ${a.bubble_factor.toFixed(2)}` : "")),
+    ...(r.pushfold ? [nashBlock(r.pushfold)] : []),
     h("h2", {}, `Equity ${(r.equity * 100).toFixed(1)}% (vince ${(r.win * 100).toFixed(1)}%)`),
     h("div", { class: "meter" }, h("b", { style: `width:${(r.equity * 100).toFixed(1)}%` })),
     h("h2", { style: "margin-top:12px" }, "Mano finale più probabile"),

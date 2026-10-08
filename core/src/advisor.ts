@@ -6,6 +6,7 @@ import {
   CALL, PRIOR, RAISE, SIZES, actionMask, betAmount, features, foldToBet, rangeFraction, teacher, teacherProbs,
   type OppAction, type OppStats, type State, type TeacherResult,
 } from "./policy.js";
+import { pushFoldAdvice, type PushFoldAdvice, type PushFoldTable } from "./pushfold.js";
 import { buildPosterior, effectiveFraction, fractionRange, topClasses, type ActionRecord } from "./range.js";
 
 export interface Weights {
@@ -102,11 +103,12 @@ export interface AdviseResult extends SimResult {
     bubble_factor: number;
   };
   opponents: { range_pct: number; top: { hand: string; pct: number }[]; contradiction?: boolean }[];
+  pushfold?: PushFoldAdvice; // heads-up short-stack Nash push/fold, when the spot is one it covers
 }
 
 const STREET_BY_BOARD: Record<number, number> = { 0: 0, 3: 1, 4: 2, 5: 3 };
 
-export function advise(req: AdviseRequest, weights?: Weights, rng?: Rng): AdviseResult {
+export function advise(req: AdviseRequest, weights?: Weights, rng?: Rng, pushFold?: PushFoldTable): AdviseResult {
   const hero = req.hero.map(parse);
   const board = req.board.map(parse);
   const street = STREET_BY_BOARD[board.length];
@@ -156,8 +158,12 @@ export function advise(req: AdviseRequest, weights?: Weights, rng?: Rng): Advise
   };
   const pred = predict(s, weights);
   const [action, amount] = label(s, argmax(pred.probs), pred.size_frac);
+  const nash = pushFold && pushFoldAdvice(pushFold, [hero[0], hero[1]], {
+    bb: req.bb, pot: req.pot, to_call: req.to_call, stack: req.stack, structure: req.structure, tournament: !!t,
+  }, req.opponents.length, board.length);
   return {
     ...sim,
+    ...(nash ? { pushfold: nash } : {}),
     advice: {
       action, amount,
       probs: { fold_check: pred.probs[0], call: pred.probs[1], raise: pred.probs[2] },

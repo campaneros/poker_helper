@@ -2,6 +2,7 @@
  * All data lives in the append-only event log (store.ts); players' stats are derived from recorded hands. */
 import { advise, type AdviseRequest, type OppInput, type Weights } from "../../core/src/advisor.js";
 import { parse } from "../../core/src/cards.js";
+import type { PushFoldTable } from "../../core/src/pushfold.js";
 import { deriveStats, type HandAction, type HandRecord } from "../../core/src/history.js";
 import { PRIOR, type OppAction, type OppStats } from "../../core/src/policy.js";
 import type { ActionRecord, ActionType } from "../../core/src/range.js";
@@ -137,7 +138,7 @@ const ok = (body: unknown): ApiResult => ({ status: 200, body });
 const fail = (status: number, msg: string): ApiResult => ({ status, body: { detail: status === 422 ? [{ msg }] : msg } });
 const INPUT_ERROR = /carta|carte|board|duplicate|servono|mostrate/;
 
-export function createLocalApi(storage: StorageLike, weights: Weights) {
+export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?: PushFoldTable) {
   const save = (...events: StoreEvent[]): void => appendEvents(storage, events);
   /** The player as the log says AFTER a write: never the copy read before it. */
   const refreshed = (id: string) => {
@@ -151,7 +152,7 @@ export function createLocalApi(storage: StorageLike, weights: Weights) {
       const now = Date.now();
       const route = `${method} ${path}`;
 
-      if (route === "POST /advise") return ok(advise(parseAdvise(body, state), weights));
+      if (route === "POST /advise") return ok(advise(parseAdvise(body, state), weights, undefined, pushFold));
 
       // ----- players -----
       if (route === "GET /players") return ok([...state.players.values()].map((p) => publicPlayer(state, p)));

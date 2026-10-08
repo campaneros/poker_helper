@@ -247,3 +247,38 @@ describe("advice using actions, shown cards and dead cards", () => {
     for (const body of bad) expect((await call("POST", "/advise", body)).status).toBe(422);
   });
 });
+
+describe("Nash push/fold through the on-device API", () => {
+  const table = JSON.parse(readFileSync(new URL("../../core/pushfold.json", import.meta.url), "utf8"));
+  const spot = { hero: ["Ah", "As"], board: [], bb: 2, pot: 3, to_call: 1, stack: 19, position: 0.95, opponents: [{}] };
+  const ask = async (body: object, withTable = true) =>
+    (await createLocalApi(memory(), weights, withTable ? table : undefined)("POST", "/advise", body)).body as any;
+
+  it("small blind at 10 bb: aces shove, seven-deuce folds; the normal advice is still returned", async () => {
+    const aces = await ask(spot);
+    expect(aces.pushfold).toMatchObject({ role: "small_blind", hand: "AA", depth: 10, decision: "shove" });
+    expect(aces.advice.action).toBeTruthy();
+    expect((await ask({ ...spot, hero: ["7c", "2d"] })).pushfold).toMatchObject({ hand: "72o", decision: "fold" });
+  });
+
+  it("big blind facing an all-in at 10 bb", async () => {
+    const facing = { ...spot, pot: 22, to_call: 18, stack: 18 };
+    expect((await ask(facing)).pushfold).toMatchObject({ role: "big_blind", depth: 10, decision: "call" });
+    expect((await ask({ ...facing, hero: ["7c", "2d"] })).pushfold).toMatchObject({ role: "big_blind", decision: "fold" });
+  });
+
+  it("is absent without a table, multiway, postflop, deep-stacked or pot-limit", async () => {
+    expect((await ask(spot, false)).pushfold).toBeUndefined();
+    expect((await ask({ ...spot, opponents: [{}, {}] })).pushfold).toBeUndefined();
+    expect((await ask({ ...spot, board: ["2c", "7d", "9h"] })).pushfold).toBeUndefined();
+    expect((await ask({ ...spot, stack: 199 })).pushfold).toBeUndefined();
+    expect((await ask({ ...spot, structure: "pot_limit" })).pushfold).toBeUndefined();
+  });
+
+  it("marks a tournament spot, and still rejects a malformed request", async () => {
+    const t = await ask({ ...spot, tournament: { stacks: [20, 30, 50], payouts: [50, 30, 20] } });
+    expect(t.pushfold.caveat).toBe("icm");
+    const bad = await createLocalApi(memory(), weights, table)("POST", "/advise", { ...spot, hero: ["Ah", "Ah"] });
+    expect(bad.status).toBe(422);
+  });
+});

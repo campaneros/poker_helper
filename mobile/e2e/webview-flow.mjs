@@ -124,6 +124,21 @@ const inPage = `(async () => {
   out.history = $('#roster li .hand').innerText.replace(/\\n+/g, ' | ');
   out.checks.historyShowsAction = /raise 12/.test(out.history) && /Preflop|Flop/.test(out.history);
 
+  // 7b) heads-up short stack: the Nash push/fold block appears (small blind, 10 bb, aces); with two opponents it must not
+  pickCard('Ah'); pickCard('As');
+  $('#bb').value = 2; $('#pot').value = 3; $('#toCall').value = 1; $('#stack').value = 19;
+  $('#result').replaceChildren();
+  $('#go').click();
+  await wait(() => $('#result .big'), 'advice with two opponents');
+  out.checks.nashHiddenMultiway = !$('#result .nash');
+  $$('.opp')[1].querySelector('header button').click();
+  $('#result').replaceChildren();
+  $('#go').click();
+  await wait(() => $('#result .nash'), 'push/fold block heads-up');
+  out.nash = $('#result .nash').innerText.replace(/\\n+/g, ' | ');
+  out.checks.nashShownHeadsUp = /SPINGI ALL-IN/.test(out.nash) && /AA/.test(out.nash) && /10 bb/.test(out.nash);
+  $('#clearCards').click();
+
   // 8) error path: asking for advice with no cards shows a message instead of crashing
   $('#go').click();
   await wait(() => $('#result .err'), 'error message');
