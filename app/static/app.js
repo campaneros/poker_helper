@@ -282,6 +282,7 @@ async function saveHand() {
 }
 
 /* ---------- advice ---------- */
+const SOURCE_NAMES = { net: "rete neurale", teacher: "policy EV", nash: "Nash esatto (push/fold)" };
 const ACTION_IT = { fold: "FOLD", check: "CHECK", call: "CALL", bet: "BET", raise: "RAISE A", "all-in": "ALL-IN" };
 
 function buildRequest() {
@@ -366,7 +367,7 @@ function renderResult(r, req, active) {
       h("strong", {}, `${oppName(active[i])} (range ${o.range_pct}%): `),
       (o.top ?? []).map((t) => `${t.hand} ${t.pct}%`).join(" · ") || "—",
       o.contradiction ? h("span", { class: "err" }, " — le azioni registrate non tornano con il suo stile: range non ristretto") : null)),
-    h("p", { class: "mute" }, `${r.sims.toLocaleString("it")} simulazioni · ${a.source === "net" ? "rete neurale" : "policy EV"}`));
+    h("p", { class: "mute" }, `${r.sims.toLocaleString("it")} simulazioni · ${SOURCE_NAMES[a.source] ?? a.source}`));
   $("result").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 

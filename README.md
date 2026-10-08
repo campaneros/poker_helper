@@ -26,7 +26,7 @@ I test sono controllati con mutazioni: rompere apposta il codice deve far fallir
 
 ```bash
 .venv/bin/python -m pytest -q        # Python: 62 test (banco di prova, vettori, server, push/fold, Deep CFR)
-(cd core && npx vitest run)          # motore: 66 test
+(cd core && npx vitest run)          # motore: 70 test
 (cd mobile && npx vitest run)        # archivio e rotte: 63 test
 .venv/bin/python -m bench.sim --hands 3000     # simulazione heads-up contro bot
 .venv/bin/python -m bench.table --hands 6000   # simulazione a 3-6 giocatori
@@ -45,7 +45,7 @@ Obiettivo ridotto, come concordato: il gioco push/fold heads-up (lo small blind 
 | `bench/pushfold.py` | Soluzione **esatta** (CFR+) per ogni stack da 2 a 25 bb. Sfruttabilità sotto 0,00001 bb: è il riferimento di verità. |
 | `bench/deep_cfr.py` | Deep CFR con reti neurali (rimpianti e strategia media), confrontato con la soluzione esatta. |
 | `bench/vs_teacher.py` | Confronta le decisioni dell'advisor con il Nash nello stesso spot. |
-| `bench/export_pushfold.py`, `core/pushfold.json`, `core/src/pushfold.ts` | La soluzione esatta portata nell'app (63 KB): in heads-up, preflop, tra 2 e 25 bb, come small blind o come big blind contro un all-in, l'app mostra SPINGI / CHIAMA / FOLD accanto al consiglio normale. Il consiglio normale non sa proporre l'all-in a stack corti. |
+| `bench/export_pushfold.py`, `core/pushfold.json`, `core/src/pushfold.ts` | La soluzione esatta portata nell'app (63 KB): in heads-up, preflop, tra 2 e 25 bb, come small blind o come big blind contro un all-in, il consiglio principale **è** il Nash (SPINGI ALL-IN / CHIAMA / FOLD, con la sua probabilità) e la fonte è dichiarata. In torneo la tabella ignora l'ICM: lì resta la rete con l'avviso. |
 
 Cosa risulta (stack da 3 a 20 bb, anche profondità mai viste in addestramento):
 - Il Deep CFR si avvicina al Nash ma non lo raggiunge: sfruttabilità media 0,03 bb contro 0,99 di "spingi e chiama sempre" (circa 3%),

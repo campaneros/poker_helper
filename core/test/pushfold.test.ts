@@ -190,3 +190,58 @@ describe("in advise()", () => {
     expect(r.pushfold?.caveat).toBe("icm");
   });
 });
+
+describe("the exact answer is THE answer where it applies (cash, heads-up, short stack)", () => {
+  const spot = {
+    hero: ["Ah", "As"] as [string, string], board: [] as string[], structure: "no_limit" as const,
+    bb: 2, pot: 3, to_call: 1, stack: 19, position: 0.95, opponents: [{}], budgetMs: 200,
+  };
+  const ask = (extra: object = {}, withTable = true) =>
+    advise({ ...spot, ...extra } as typeof spot, undefined, seededRng(1), withTable ? table : undefined);
+
+  it("small blind: aces shove all-in, seven-deuce folds, and the probabilities are the table's", () => {
+    const aces = ask().advice;
+    expect(aces).toMatchObject({ action: "all-in", amount: 19, source: "nash", bubble_factor: 1 });
+    expect(aces.probs.raise).toBeGreaterThan(0.99);
+    expect(aces.probs.call).toBe(0);
+    const trash = ask({ hero: ["7c", "2d"] }).advice;
+    expect(trash).toMatchObject({ action: "fold", amount: 0, source: "nash" });
+    expect(trash.probs.fold_check).toBeGreaterThan(0.99);
+  });
+
+  it("big blind facing an all-in: aces call for what is left, seven-deuce folds", () => {
+    const facing = { pot: 22, to_call: 18, stack: 18 };
+    const aces = ask(facing).advice;
+    expect(aces).toMatchObject({ action: "call", amount: 18, source: "nash" });
+    expect(aces.probs.call).toBeGreaterThan(0.99); // a call, not a raise: the big blind cannot raise an all-in
+    expect(aces.probs.raise).toBe(0);
+    const trash = ask({ ...facing, hero: ["7c", "2d"] }).advice;
+    expect(trash).toMatchObject({ action: "fold", amount: 0, source: "nash" });
+    expect(trash.probs.fold_check).toBeGreaterThan(0.99);
+    expect(trash.probs.call).toBeLessThan(0.01);
+  });
+
+  it("a mixed hand reports the table's probability, not 0 or 1", () => {
+    let spotAt: { k: number; j: number } | null = null;
+    for (let k = 0; k < table.depths.length && !spotAt; k++) {
+      for (let j = 0; j < 169; j++) if (table.shove[k][j] > 0.3 && table.shove[k][j] < 0.7) { spotAt = { k, j }; break; }
+    }
+    expect(spotAt, "no mixed hand in the table").not.toBeNull();
+    const { k, j } = spotAt as { k: number; j: number };
+    const label = table.classes[j];
+    const cards: [string, string] = label[0] === label[1] ? [label[0] + "h", label[1] + "d"]
+      : [label[0] + "h", label[1] + (label.endsWith("s") ? "h" : "d")];
+    const advice = ask({ hero: cards, stack: table.depths[k] * 2 - 1 }).advice;
+    expect(advice.probs.raise).toBeCloseTo(table.shove[k][j], 12);
+    expect(advice.probs.fold_check).toBeCloseTo(1 - table.shove[k][j], 12);
+  });
+
+  it("is not used in a tournament (the table ignores the ICM), without a table, multiway, or deep-stacked", () => {
+    const t = ask({ tournament: { stacks: [20, 30, 50], payouts: [50, 30, 20] } });
+    expect(t.advice.source).not.toBe("nash");
+    expect(t.pushfold?.caveat).toBe("icm"); // but the note is still there
+    expect(ask({}, false).advice.source).not.toBe("nash");
+    expect(ask({ opponents: [{}, {}] }).advice.source).not.toBe("nash");
+    expect(ask({ stack: 199 }).advice.source).not.toBe("nash");
+  });
+});

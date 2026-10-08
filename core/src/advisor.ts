@@ -99,7 +99,7 @@ export interface AdviseResult extends SimResult {
     amount: number;
     probs: { fold_check: number; call: number; raise: number };
     evs: (number | null)[];
-    source: "net" | "teacher";
+    source: "net" | "teacher" | "nash";
     bubble_factor: number;
   };
   opponents: { range_pct: number; top: { hand: string; pct: number }[]; contradiction?: boolean }[];
@@ -107,6 +107,19 @@ export interface AdviseResult extends SimResult {
 }
 
 const STREET_BY_BOARD: Record<number, number> = { 0: 0, 3: 1, 4: 2, 5: 3 };
+
+/** Where the Nash table is exact (cash, heads-up, short stack) it replaces the heuristic advice: one answer, not two.
+ * Shove/call/fold come with the table's probability; amounts are all-in, the call, or nothing. */
+function nashAdvice(n: PushFoldAdvice, req: AdviseRequest): AdviseResult["advice"] {
+  const p = n.probability;
+  const sb = n.role === "small_blind";
+  const action = n.decision === "shove" ? "all-in" : n.decision;
+  const amount = n.decision === "shove" ? req.stack : n.decision === "call" ? Math.min(req.to_call, req.stack) : 0;
+  return {
+    action, amount, evs: [null, null, null], source: "nash", bubble_factor: 1,
+    probs: sb ? { fold_check: 1 - p, call: 0, raise: p } : { fold_check: 1 - p, call: p, raise: 0 },
+  };
+}
 
 export function advise(req: AdviseRequest, weights?: Weights, rng?: Rng, pushFold?: PushFoldTable): AdviseResult {
   const hero = req.hero.map(parse);
@@ -164,7 +177,8 @@ export function advise(req: AdviseRequest, weights?: Weights, rng?: Rng, pushFol
   return {
     ...sim,
     ...(nash ? { pushfold: nash } : {}),
-    advice: {
+    // the table is chip-EV: in a tournament the network (which prices the ICM) keeps the lead and Nash is shown as a note
+    advice: nash && !t ? nashAdvice(nash, req) : {
       action, amount,
       probs: { fold_check: pred.probs[0], call: pred.probs[1], raise: pred.probs[2] },
       evs: pred.teacher.evs.map((e) => (Number.isFinite(e) ? e : null)),

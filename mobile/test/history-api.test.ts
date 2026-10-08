@@ -257,7 +257,7 @@ describe("Nash push/fold through the on-device API", () => {
   it("small blind at 10 bb: aces shove, seven-deuce folds; the normal advice is still returned", async () => {
     const aces = await ask(spot);
     expect(aces.pushfold).toMatchObject({ role: "small_blind", hand: "AA", depth: 10, decision: "shove" });
-    expect(aces.advice.action).toBeTruthy();
+    expect(aces.advice).toMatchObject({ action: "all-in", amount: 19, source: "nash" }); // the exact answer is THE answer
     expect((await ask({ ...spot, hero: ["7c", "2d"] })).pushfold).toMatchObject({ hand: "72o", decision: "fold" });
   });
 
@@ -278,6 +278,7 @@ describe("Nash push/fold through the on-device API", () => {
   it("marks a tournament spot, and still rejects a malformed request", async () => {
     const t = await ask({ ...spot, tournament: { stacks: [20, 30, 50], payouts: [50, 30, 20] } });
     expect(t.pushfold.caveat).toBe("icm");
+    expect(t.advice.source).not.toBe("nash"); // chip-EV table: the network, which prices the ICM, keeps the lead
     const bad = await createLocalApi(memory(), weights, table)("POST", "/advise", { ...spot, hero: ["Ah", "Ah"] });
     expect(bad.status).toBe(422);
   });

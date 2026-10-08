@@ -137,6 +137,7 @@ const inPage = `(async () => {
   await wait(() => $('#result .nash'), 'push/fold block heads-up');
   out.nash = $('#result .nash').innerText.replace(/\\n+/g, ' | ');
   out.checks.nashShownHeadsUp = /SPINGI ALL-IN/.test(out.nash) && /AA/.test(out.nash) && /10 bb/.test(out.nash);
+  out.checks.mainAdviceIsNash = /ALL-IN/.test($('#result .big').textContent) && /Nash esatto/.test($('#result').innerText);
   $('#clearCards').click();
 
   // 8) error path: asking for advice with no cards shows a message instead of crashing
