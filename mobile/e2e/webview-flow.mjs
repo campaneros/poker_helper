@@ -33,6 +33,7 @@ const inPage = `(async () => {
     }, 30);
   });
   const pickCard = (code) => { $('.suit[data-suit="' + code[1] + '"]').click(); $('.ranks button[aria-label="' + code + '"]').click(); };
+  const typeInto2 = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
   const setValue = (el, v) => { el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); };
   const out = { checks: {} };
   const sent = { advise: [], hands: [] }; // what the UI really sends to the engine
@@ -117,6 +118,14 @@ const inPage = `(async () => {
   const req = sent.advise[0];
   out.checks.adviceCarriesTableInfo = !!req && req.opponents[0].known?.length === 2 && req.opponents[1].actions?.length === 1
     && req.opponents[1].actions[0].type === 'raise' && req.dead?.length === 1;
+
+  // 6b) a bet typed in chips instead of a pot fraction: pot 40 already holds the 30, so it was 30 into 10 = 3x
+  setValue($$('.opp')[0].querySelector('select'), 'bet');
+  typeInto2($$('.opp')[0].querySelector('input[aria-label="Importo della puntata in fiche"]'), '30');
+  $('#result').replaceChildren();
+  $('#go').click();
+  await wait(() => $('#result .big'), 'advice with a typed bet');
+  out.checks.typedBetReachesTheEngine = Math.abs(sent.advise[sent.advise.length - 1].opponents[0].bet_frac - 3) < 1e-9;
 
   // 7) save the hand: the player's stats and history are updated
   $('#saveHand').click();

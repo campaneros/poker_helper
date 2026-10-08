@@ -272,13 +272,26 @@ const newOpp = (player_id) => ({ uid: ++state.uid, player_id, action: "none", be
 /** The stacks typed for the tournament, as numbers (hero first). */
 const tournamentStacks = () => $("tStacks").value.split(/[,\s;]+/).filter(Boolean).map(Number).filter((x) => x >= 0);
 
+/** The bet as a fraction of the pot BEFORE it. A typed amount wins over the preset size; the pot field already
+ * contains this bet, so it is taken out first. */
+function betFraction(o) {
+  if (!(o.bet_amount > 0)) return o.bet_frac;
+  const pot = num("pot"), before = pot - o.bet_amount > 0 ? pot - o.bet_amount : pot;
+  return before > 0 ? Math.min(10, Math.max(0.01, o.bet_amount / before)) : o.bet_frac;
+}
+
 function renderOpps() {
   $("opps").replaceChildren(...state.opps.map((o) => {
     const p = state.players.find((x) => x.id === o.player_id);
     const sizeLabel = h("label", {}, "Taglia puntata", h("select", {
       "aria-label": "Taglia puntata", onchange: (e) => (o.bet_frac = +e.target.value),
     }, ...SIZES.map(([v, t]) => h("option", { value: v, selected: v === o.bet_frac }, t))));
-    sizeLabel.hidden = !["bet", "raise"].includes(o.action);
+    const amountLabel = h("label", {}, "Oppure importo (fiche)", h("input", {
+      type: "number", inputmode: "decimal", step: "any", min: "0", placeholder: "es. 30", value: o.bet_amount ?? "",
+      "aria-label": "Importo della puntata in fiche",
+      oninput: (e) => { o.bet_amount = e.target.value === "" ? undefined : parseFloat(e.target.value); },
+    }));
+    sizeLabel.hidden = amountLabel.hidden = !["bet", "raise"].includes(o.action);
     return h("div", { class: "opp" + (o.folded ? " folded" : "") },
       h("header", {}, h("strong", {}, oppName(o) + (o.folded ? " (fold)" : "")),
         h("span", { class: "tag" }, p ? `${p.style} · ${p.hands} mani` : "stile medio"),
@@ -288,9 +301,9 @@ function renderOpps() {
         }, "✕")),
       h("div", { class: "grid" },
         h("label", {}, "Ultima azione", h("select", {
-          onchange: (e) => { o.action = e.target.value; sizeLabel.hidden = !["bet", "raise"].includes(o.action); },
+          onchange: (e) => { o.action = e.target.value; sizeLabel.hidden = amountLabel.hidden = !["bet", "raise"].includes(o.action); },
         }, ...ACTIONS.map(([v, t]) => h("option", { value: v, selected: v === o.action }, t)))),
-        sizeLabel),
+        sizeLabel, amountLabel),
       $("structure").value === "tournament" && tournamentStacks().length > 2 ? h("label", {}, "Quale stack della lista?", h("select", {
         "aria-label": "Stack dell'avversario nella lista del torneo", onchange: (e) => (o.villain = e.target.value),
       }, h("option", { value: "" }, "Il più grande"),
@@ -319,7 +332,7 @@ function syncOppsFromLog() {
     const last = mine[mine.length - 1];
     if (!last) continue;
     o.action = OPP_ACTION[last.type];
-    if (last.amount && last.pot_before > 0) o.bet_frac = last.amount / last.pot_before;
+    if (last.amount && last.pot_before > 0) { o.bet_frac = last.amount / last.pot_before; o.bet_amount = undefined; } // the log is explicit
   }
 }
 
@@ -389,7 +402,7 @@ function buildRequest() {
     bb: num("bb"), pot: num("pot"), to_call: num("toCall") || 0, stack: num("stack"), position: num("position"),
     ...(state.dead.length ? { dead: state.dead } : {}),
     opponents: active.map((o) => {
-      const out = { player_id: o.player_id, action: o.action, bet_frac: o.bet_frac };
+      const out = { player_id: o.player_id, action: o.action, bet_frac: betFraction(o) };
       const shown = o.known.filter(Boolean);
       if (shown.length) out.known = shown;
       const mine = state.log.filter((l) => l.who === "o" + o.uid);
