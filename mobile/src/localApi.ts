@@ -194,6 +194,13 @@ export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?
         if (!target) return fail(404, "giocatore non trovato");
         const part = player[2];
         if (method === "DELETE" && !part) { save({ t: "player_del", id: target.id, ts: now }); return ok({ ok: true }); }
+        if (method === "PUT" && !part) { // rename: a nickname the user will recognise
+          const name = text(body?.name, "nome");
+          const taken = [...state.players.values()].some((p) => p.id !== target.id && p.name.toLowerCase() === name.toLowerCase());
+          if (taken) throw new ValidationError("esiste già un giocatore con questo nome");
+          save({ t: "rename", id: target.id, name, ts: now });
+          return ok(refreshed(target.id));
+        }
         if (method === "PUT" && part === "style") {
           const styleId = body?.style_id ?? null;
           if (styleId !== null && !styleById(state, styleId)) return fail(404, "stile non trovato");

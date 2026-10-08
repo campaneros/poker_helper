@@ -149,3 +149,16 @@ describe("migration from the interim players store", () => {
     }
   });
 });
+
+describe("rename events", () => {
+  it("change only the name, and are ignored for a player who is gone", () => {
+    const s = memory();
+    appendEvents(s, [
+      player("a", "Anna"), { t: "assign", player: "a", style: "builtin:tag", ts: 2 },
+      { t: "rename", id: "a", name: "Annina", ts: 3 }, { t: "rename", id: "ghost", name: "Nessuno", ts: 4 },
+      player("b", "Bruno"), { t: "player_del", id: "b", ts: 5 }, { t: "rename", id: "b", name: "Bruno II", ts: 6 },
+    ]);
+    const state = reduceEvents(readEvents(s).events);
+    expect([...state.players.values()].map((p) => [p.id, p.name, p.style_id])).toEqual([["a", "Annina", "builtin:tag"]]);
+  });
+});

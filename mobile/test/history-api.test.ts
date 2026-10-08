@@ -364,3 +364,36 @@ describe("Nash with the ICM through the on-device API", () => {
     expect(r.advice.source).not.toBe("nash_icm");
   });
 });
+
+describe("nicknames for players", () => {
+  it("renaming keeps the style, the hands and the stats, and survives a restart", async () => {
+    const store = memory();
+    const api = createLocalApi(store, weights);
+    const id = ((await api("POST", "/players", { name: "Tizio" })).body as { id: string }).id;
+    await api("PUT", `/players/${id}/style`, { style_id: "builtin:fish" });
+    await api("POST", "/hands", { bb: 2, board: [], players: [{ id }], actions: [{ player: id, street: 0, type: "raise", amount: 6 }] });
+    const before = ((await api("GET", "/players")).body as any[])[0];
+    const r = await api("PUT", `/players/${id}`, { name: "  Il Dottore " });
+    expect(r.status).toBe(200);
+    expect((r.body as any).name).toBe("Il Dottore");
+    const { name: _n, ...after } = r.body as any, { name: _o, ...old } = before;
+    expect(after).toEqual(old); // same id, style, hands, VPIP, PFR, AF
+    expect(((await api("GET", `/players/${id}/hands`)).body as unknown[]).length).toBe(1);
+    const reopened = createLocalApi(store, weights);
+    expect(((await reopened("GET", "/players")).body as any[])[0].name).toBe("Il Dottore");
+  });
+
+  it("refuses an empty, too long or already used name, and an unknown player", async () => {
+    const api = createLocalApi(memory(), weights);
+    const a = ((await api("POST", "/players", { name: "Anna" })).body as { id: string }).id;
+    const b = ((await api("POST", "/players", { name: "Bruno" })).body as { id: string }).id;
+    expect((await api("PUT", `/players/${b}`, { name: "   " })).status).toBe(422);
+    expect((await api("PUT", `/players/${b}`, { name: "x".repeat(41) })).status).toBe(422);
+    const twin = await api("PUT", `/players/${b}`, { name: "ANNA" });
+    expect(twin.status).toBe(422);
+    expect(JSON.stringify(twin.body)).toMatch(/esiste già/);
+    expect((await api("PUT", "/players/nessuno", { name: "Carlo" })).status).toBe(404);
+    expect((await api("PUT", `/players/${a}`, { name: "ANNA" })).status).toBe(200); // changing only the case of his own name is fine
+    expect(((await api("GET", "/players")).body as any[]).map((p) => p.name).sort()).toEqual(["ANNA", "Bruno"]);
+  });
+});

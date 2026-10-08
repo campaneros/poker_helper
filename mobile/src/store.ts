@@ -15,6 +15,7 @@ export interface PlayerState { id: string; name: string; style_id: string | null
 export type StoreEvent =
   | { t: "player"; id: string; name: string; ts: number }
   | { t: "player_del"; id: string; ts: number }
+  | { t: "rename"; id: string; name: string; ts: number } // new name, everything else about the player stays
   | { t: "style"; id: string; name: string; vpip: number; pfr: number; af: number; ts: number }
   | { t: "style_del"; id: string; ts: number }
   | { t: "assign"; player: string; style: string | null; ts: number }
@@ -98,6 +99,11 @@ export function reduceEvents(events: readonly StoreEvent[], skipped = 0): StoreS
     switch (e.t) {
       case "player": players.set(e.id, { id: e.id, name: e.name, style_id: null, legacy: noCounts() }); break;
       case "player_del": players.delete(e.id); break;
+      case "rename": {
+        const p = players.get(e.id);
+        if (p) players.set(e.id, { ...p, name: e.name });
+        break;
+      }
       case "style": styles.set(e.id, { id: e.id, name: e.name, vpip: e.vpip, pfr: e.pfr, af: e.af }); break;
       case "style_del": {
         styles.delete(e.id);

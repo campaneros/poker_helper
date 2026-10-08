@@ -223,6 +223,22 @@ const inPage = `(async () => {
   setValue($('#structure'), 'no_limit');
   $('#clearCards').click();
 
+  // 7d) a nickname for an opponent: it becomes a saved profile; renaming keeps the same one
+  const nameInput = () => $$('.opp')[0].querySelector('input[aria-label="Nome del giocatore"]');
+  const saveName = () => $$('.opp')[0].querySelector('.name-row button').click();
+  const rosterBefore = $$('#roster li').length;
+  typeInto(nameInput(), 'Il Dottore');
+  saveName();
+  await wait(() => $$('#roster li').length === rosterBefore + 1, 'nickname saved as a profile');
+  out.checks.nicknameCreatesProfile = $('.opp header strong').textContent === 'Il Dottore' && $('.seat[data-seat="o1"] strong').textContent === 'Il Dottore';
+  typeInto(nameInput(), 'Dottor Rossi');
+  saveName();
+  await wait(() => /Dottor Rossi/.test($('.opp header strong').textContent), 'renamed');
+  out.checks.renameKeepsOneProfile = $$('#roster li').length === rosterBefore + 1 && !/Il Dottore/.test($('#roster').textContent);
+  $('.seat[data-seat="o1"]').click();
+  out.checks.seatMenuHasNameField = !!$('#seatMenu input[aria-label="Nome del giocatore"]') && $('#seatMenu input[aria-label="Nome del giocatore"]').value === 'Dottor Rossi';
+  $('.seat[data-seat="o1"]').click();
+
   // 8) error path: asking for advice with no cards shows a message instead of crashing
   $('#go').click();
   await wait(() => $('#result .err'), 'error message');

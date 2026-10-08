@@ -302,6 +302,7 @@ function renderOpps() {
           "aria-label": "Rimuovi",
           onclick: () => removeOpp(o),
         }, "✕")),
+      nameControl(o),
       h("div", { class: "grid" },
         h("label", {}, "Ultima azione", h("select", {
           onchange: (e) => { o.action = e.target.value; sizeLabel.hidden = amountLabel.hidden = !["bet", "raise"].includes(o.action); },
@@ -368,6 +369,39 @@ function addOpp(playerId) {
   state.opps.push(o);
   state.seats.push(keyOf(o));
   afterTableChange();
+}
+
+/** Give an opponent a name of the user's choice. Without a profile this saves a new one, so his history and stats start to
+ * accumulate under that name; with one it renames it. A name that already exists reuses that profile instead of making a twin. */
+async function nameOpponent(o, raw) {
+  const name = raw.trim();
+  if (!name) { say("Scrivi un nome."); return; }
+  try {
+    const same = state.players.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (o.player_id) {
+      await send("PUT", "/players/" + o.player_id, { name });
+      say(`Rinominato: ${name}.`);
+    } else if (same) {
+      if (state.opps.some((x) => x !== o && x.player_id === same.id)) throw new Error(`${same.name} è già seduto al tavolo.`);
+      o.player_id = same.id;
+      say(`Esiste già un profilo «${same.name}»: assegnato a questo posto.`);
+    } else {
+      o.player_id = (await send("POST", "/players", { name })).id;
+      say(`Salvato come ${name}: da ora la sua storia si accumula sotto questo nome.`);
+    }
+    await refreshAll();
+  } catch (e) {
+    say(e.message);
+  }
+}
+
+function nameControl(o) {
+  const input = h("input", {
+    type: "text", maxlength: "40", placeholder: "Nome a tua scelta", "aria-label": "Nome del giocatore", "data-name-input": "1",
+    value: state.players.find((p) => p.id === o.player_id)?.name ?? "",
+    onkeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); nameOpponent(o, input.value); } },
+  });
+  return h("div", { class: "row name-row" }, input, h("button", { type: "button", onclick: () => nameOpponent(o, input.value) }, "Salva nome"));
 }
 
 function removeOpp(o) {
@@ -457,6 +491,7 @@ function renderSeatMenu() {
   const parts = [h("header", {}, h("strong", {}, seatName(key)),
     h("button", { "aria-label": "Chiudi", onclick: () => { state.menu = null; renderTable(); renderSeatMenu(); } }, "✕"))];
   if (opp) {
+    parts.push(nameControl(opp));
     parts.push(h("label", {}, "Profilo", h("select", {
       "aria-label": `Profilo del giocatore al posto di ${seatName(key)}`,
       onchange: (e) => { opp.player_id = e.target.value || null; afterTableChange(); },
@@ -724,7 +759,7 @@ function renderAll() {
 
 $("go").onclick = go;
 document.addEventListener("keydown", (e) => {
-  const typing = ["newName", "styleName"].includes(e.target.id); // Enter in these fields is not "advise"
+  const typing = ["newName", "styleName"].includes(e.target.id) || e.target.dataset?.nameInput; // Enter in these fields is not "advise"
   if (e.key === "Enter" && !typing && !["BUTTON", "SELECT", "SUMMARY"].includes(e.target.tagName)) go();
 });
 $("clearCards").onclick = () => {
