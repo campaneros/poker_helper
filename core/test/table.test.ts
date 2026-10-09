@@ -88,6 +88,20 @@ describe("a hand from the first action to the river", () => {
     expect(pot(s)).toBe(6);
   });
 
+  it("an all-in that is less than a full raise does not lower the minimum raise", () => {
+    const s = run(setup(["A", "B", "C"], 0, 10), [act("A", "raise", 30), act("B", "allin", 35)]);
+    expect(s.current).toBe(35);
+    expect(s.lastRaise).toMatchObject({ who: "B", to: 35 }); // still the last to raise, for display
+    expect(minRaiseTo(s)).toBe(55); // a full raise is still 20 on top of the bet, not the 5 the shove added
+    const full = run(setup(["A", "B", "C"], 0, 10), [act("A", "raise", 30), act("B", "allin", 60)]);
+    expect(minRaiseTo(full)).toBe(90); // 30 more on top of 60: a full all-in raise does reset it
+  });
+
+  it("the minimum raise starts again on every street", () => {
+    const s = run(s0, [act("A", "raise", 6), act("B", "call"), act("C", "call")]);
+    expect(minRaiseTo(s)).toBe(2); // nothing bet yet on the flop: one big blind
+  });
+
   it("a re-raise reopens the action for the original raiser", () => {
     const s = run(s0, [act("A", "raise", 6), act("B", "raise", 18), act("C", "fold")]);
     expect(nextToAct(s)).toBe("A");

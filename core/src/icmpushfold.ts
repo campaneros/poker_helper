@@ -42,8 +42,8 @@ export interface IcmOptions {
 }
 const DEFAULTS = { maxIterations: 3000, tolerance: 1e-4 }; // tolerance is relative to the prize pool
 const BLOCK = 250;
-export const MIN_DEPTH_BB = 2;
-export const MAX_DEPTH_BB = 25;
+const MIN_DEPTH_BB = 2;
+const MAX_DEPTH_BB = 25;
 
 // ---------- the 169 classes and the exact card-removal counts ----------
 interface Structure {

@@ -33,7 +33,7 @@ const inPage = `(async () => {
     }, 30);
   });
   const pickCard = (code) => { $('.suit[data-suit="' + code[1] + '"]').click(); $('.ranks button[aria-label="' + code + '"]').click(); };
-  const typeInto2 = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+  const typeInto = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
   const setValue = (el, v) => { el.value = v; el.dispatchEvent(new Event('change', { bubbles: true })); };
   const out = { checks: {} };
   const sent = { advise: [], hands: [] }; // what the UI really sends to the engine
@@ -100,16 +100,34 @@ const inPage = `(async () => {
   out.checks.undoRestoresPlayer = !$$('.opp')[0].classList.contains('folded') && $$('#log li').length === 0;
   seat('o1').click();
   menuButton('Call').click();
+  const lastActionOf = (opp) => [...opp.querySelectorAll('label')].find((l) => /Ultima azione/.test(l.textContent)).querySelector('select').value;
+  const quickAction = () => lastActionOf($$('.opp')[0]);
+  out.checks.callSetsQuickAction = quickAction() === 'call';
+  $('#logUndo').click();               // undo must forget what the log had set for him
+  out.checks.undoResetsQuickAction = quickAction() === 'none';
+  seat('o1').click();
+  menuButton('Call').click();
   seat('o2').click();
   $('#seatAmount').value = '';
   $$('#seatMenu button').find((b) => b.textContent.trim() === 'Rilancia').click();
   out.checks.betNeedsAmount = /superare/.test($('#seatMenu .err').textContent) && $$('#log li').length === 1;
+  const advicesBefore = sent.advise.length;
+  $('#seatAmount').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await new Promise((r) => setTimeout(r, 400));
+  out.checks.enterInSeatMenuDoesNotAdvise = sent.advise.length === advicesBefore;
   $('#seatAmount').value = '12';
   $$('#seatMenu button').find((b) => b.textContent.trim() === 'Rilancia').click();
   out.log = $$('#log li').map((li) => li.textContent);
   out.checks.actionLogged = $$('#log li').length === 2 && /Avversario 1: call 2/.test(out.log[0]) && /E2E: raise 12 \\(piatto 5\\)/.test(out.log[1]);
   out.checks.tableFillsPotAndCall = $('#pot').value === '16' && $('#toCall').value === '10';
   out.checks.lastRaiseShown = /ultimo rilancio: E2E a 12/.test($('#table .felt').textContent);
+
+  // 6a) a style or profile edit must not overwrite a pot typed by hand
+  $('#pot').value = '40';
+  setValue($$('.opp')[0].querySelector('select[aria-label^="Stile di"]'), 'builtin:nit');
+  out.checks.styleEditKeepsTypedPot = $('#pot').value === '40';
+  setValue($$('.opp')[0].querySelector('select[aria-label^="Stile di"]'), '');
+  $('#pot').value = '16';
 
   // 6) advice: shown cards pin the hand, the log narrows the other opponent, bars are drawn
   $('#stack').value = 300;
@@ -138,7 +156,7 @@ const inPage = `(async () => {
 
   // 6b) a bet typed in chips instead of a pot fraction: pot 16 already holds the 8, so it was 8 into 8 = 1x
   setValue($$('.opp')[0].querySelector('select'), 'bet');
-  typeInto2($$('.opp')[0].querySelector('input[aria-label="Importo della puntata in fiche"]'), '8');
+  typeInto($$('.opp')[0].querySelector('input[aria-label="Importo della puntata in fiche"]'), '8');
   $('#result').replaceChildren();
   $('#go').click();
   await wait(() => $('#result .big'), 'advice with a typed bet');
@@ -153,6 +171,7 @@ const inPage = `(async () => {
     && saved.table?.seats.length === 3 && saved.table.first === 1 && saved.players.length === 2 && saved.players[0].known.length === 2 && saved.board.length === 3 && saved.hero?.length === 2;
   out.checks.stateResetAfterSave = $$('#log li').length === 0 && $$('#deadRow .chip:not(.add)').length === 0
     && $$('#slots .slot').every((e) => e.textContent === '·');
+  out.checks.newHandStartsFromTheBlinds = $('#pot').value === '3' && $('#toCall').value === '1' && $$('.opp').every((o) => lastActionOf(o) === 'none');
   await wait(() => /1 mani/.test($('#roster li').textContent), 'player stats refreshed');
   out.checks.statsUpdated = true;
   $$('#roster li button').find((b) => b.textContent === 'Storico').click();
@@ -164,9 +183,10 @@ const inPage = `(async () => {
   $$('#roster li button').find((b) => b.getAttribute('aria-label') === 'Modifica questa mano').click();
   await wait(() => $('#roster li .editor'), 'hand editor');
   const editorRows = () => $$('#roster li .editor .edit-action');
-  const typeInto = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
   const saveEdit = () => $('#roster li .editor button[aria-label="Salva le modifiche alla mano"]').click();
   out.checks.editorShowsTheHand = editorRows().length === 2 && editorRows()[1].querySelector('input[aria-label="Importo"]').value === '12';
+  $$('#slots .slot')[0].click();       // a card tap must not destroy the open editor
+  out.checks.editorSurvivesCardTaps = !!$('#roster li .editor') && editorRows().length === 2;
   typeInto(editorRows()[1].querySelector('input[aria-label="Importo"]'), '18');
   setValue(editorRows()[1].querySelector('select[aria-label$="tipo"]'), 'check');
   saveEdit();
@@ -300,6 +320,16 @@ const inPage = `(async () => {
   rossiLi().querySelector('.suggest button').click();
   await wait(() => !rossiLi().querySelector('.suggest'), 'suggestion applied');
   out.checks.suggestionApplies = /Maniac/.test(rossiLi().textContent);
+
+  // 7i) the same saved player cannot sit twice, and deleting a seated player takes his seat away
+  const seatsNow = $$('.seat').length;
+  setValue($('#addSel'), rossi.id);
+  $('#addOpp').click();
+  out.checks.cannotSeatTwice = $$('.seat').length === seatsNow && /già seduto/.test($('#notice').textContent);
+  const luigiLi = () => $$('#roster li').find((li) => /Luigi/.test(li.textContent));
+  [...luigiLi().querySelectorAll('button')].find((b) => b.textContent === 'Elimina').click();
+  await wait(() => !luigiLi(), 'seated player deleted');
+  out.checks.deleteRemovesTheSeat = $$('.seat').length === seatsNow - 1 && !$$('.seat').some((e) => /Luigi|Avversario 0/.test(e.textContent));
 
   out.rosterSmall = $$('#roster button, #roster select').filter((e) => rect(e).width < ${MIN_TOUCH_PX} || rect(e).height < ${MIN_TOUCH_PX}).map((e) => (e.getAttribute('aria-label') || e.textContent) + ' ' + Math.round(rect(e).width) + 'x' + Math.round(rect(e).height));
   out.checks.rosterTargetsTouchSized = out.rosterSmall.length === 0 && root.scrollWidth <= root.clientWidth;

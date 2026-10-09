@@ -1,15 +1,16 @@
 /** Per-opponent range posterior: weights over all two-card holdings, narrowed by each recorded action.
  * Weights are indexed by pairKey (only a<b entries used) and sum to 1. Known cards and dead cards are exact:
  * a holding containing a dead card has weight 0, and a known card forces every surviving holding to contain it. */
-import { Card, DECK, RANKS, rankOf, suitOf } from "./cards.js";
+import { Card, DECK } from "./cards.js";
 import { OppAction, OppStats, rangeFraction } from "./policy.js";
+import { startingHandClass } from "./pushfold.js";
+import { BOARD_FOR_STREET } from "./table.js";
 import { PREFLOP_KEEP, handPct, inRange, madeHandPct, pairKey } from "./ranges.js";
 
 export type ActionType = "fold" | "check" | "call" | "bet" | "raise" | "allin";
 export interface ActionRecord { street: number; type: ActionType; amount?: number; pot_before?: number }
 
 const TAU = 0.02; // softness of the range boundary: a hard "top f%" cut would make one odd action impossible
-const BOARD_LEN = [0, 3, 4, 5];
 const DEFAULT_BET_FRAC = 0.6;
 // Actions that narrow the range. A check says nothing about strength and a fold removes the player.
 const NARROWING: Partial<Record<ActionType, OppAction>> = { call: "call", bet: "bet", raise: "raise", allin: "raise" };
@@ -83,7 +84,7 @@ export function buildPosterior(input: PosteriorInput): Posterior {
   let contradiction = false;
   if (known.length < 2) {
     for (const action of input.actions) {
-      const need = BOARD_LEN[action.street];
+      const need = BOARD_FOR_STREET[action.street];
       if (need === undefined || input.board.length < need) continue; // street not reached on this board
       const r = updateRange(weights, action, input.stats, input.board.slice(0, need));
       weights = r.weights;
@@ -117,18 +118,13 @@ export function effectiveFraction(w: Float64Array, live: number): number {
   return Math.max(0.04, Math.min(1, 1 / sumSq / live));
 }
 
-const label = (a: Card, b: Card): string => {
-  const hi = Math.max(rankOf(a), rankOf(b)), lo = Math.min(rankOf(a), rankOf(b));
-  return RANKS[hi] + RANKS[lo] + (hi === lo ? "" : suitOf(a) === suitOf(b) ? "s" : "o");
-};
-
 /** Probability share of every starting-hand class (AA, AKs, QJo...) in a range; classes with no weight are absent. */
 export function classShares(w: Float64Array): Map<string, number> {
   const byClass = new Map<string, number>();
   for (let a = 0; a < 52; a++) {
     for (let b = a + 1; b < 52; b++) {
       const v = w[pairKey(a, b)];
-      if (v > 0) byClass.set(label(a, b), (byClass.get(label(a, b)) ?? 0) + v);
+      if (v > 0) byClass.set(startingHandClass(a, b), (byClass.get(startingHandClass(a, b)) ?? 0) + v);
     }
   }
   return byClass;

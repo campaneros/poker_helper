@@ -1,5 +1,8 @@
 /** Cards (0..51 = rank*4 + suit) and a 5-7 card hand evaluator (higher score = better hand). */
 
+/** The caller gave something the engine cannot use (a bad card, a duplicate): a problem with the input, not a bug. */
+export class InputError extends Error {}
+
 export type Card = number;
 export const RANKS = "23456789TJQKA";
 export const SUITS = "shdc";
@@ -14,11 +17,10 @@ export function parse(text: string): Card {
   if (s.length === 3 && s.startsWith("10")) s = "T" + s[2];
   const rank = RANKS.indexOf((s[0] ?? "").toUpperCase());
   const suit = SUITS.indexOf((s[1] ?? "").toLowerCase());
-  if (s.length !== 2 || rank < 0 || suit < 0) throw new Error(`carta non valida: ${text}`);
+  if (s.length !== 2 || rank < 0 || suit < 0) throw new InputError(`carta non valida: ${text}`);
   return rank * 4 + suit;
 }
 
-export const format = (c: Card): string => RANKS[rankOf(c)] + SUITS[suitOf(c)];
 
 /** Python/treys integer encoding -> Card. Only used to read the golden vectors. */
 export function fromTreys(t: number): Card {

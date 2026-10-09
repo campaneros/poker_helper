@@ -1,7 +1,7 @@
 # Poker Advisor — app Android
 
 L'app gira interamente sul telefono: motore (`../core`), rete neurale, archivio dei giocatori e delle mani.
-Non chiede alcun permesso e non usa la rete. Il server Python non serve più.
+Non chiede alcun permesso e non usa la rete.
 
 ## Costruire l'APK
 
@@ -27,8 +27,8 @@ Installazione sul telefono: `adb install -r dist/PokerAdvisor-1.0.apk`, oppure c
 ## Test
 
 ```bash
-(cd ../core && npx vitest run)       # motore: parità con Python, range, storico, Nash, ICM, shove multiway, tavolo, suggerimenti   (162)
-npx vitest run                       # archivio a eventi, guasti del registro, tavolo, nomi, stili, suggerimenti, rotte, storico, Nash, ICM, multiway (102)
+(cd ../core && npx vitest run)       # motore: parità con Python, range, storico, Nash, ICM, shove multiway, tavolo, suggerimenti   (164)
+npx vitest run                       # archivio a eventi, guasti del registro, tavolo, nomi, stili, suggerimenti, rotte, storico, Nash, ICM, multiway (105)
 node e2e/webview-flow.mjs 9222       # interfaccia completa nella WebView (vedi intestazione del file)
 ```
 

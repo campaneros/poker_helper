@@ -13,7 +13,7 @@ export interface TableSetup {
 export interface TableAction { who: string; type: ActionType; amount?: number }
 
 /** One recorded step. `amount`: total put in on the street for bet / raise / all-in, chips added for a call. */
-export interface TableStep { who: string; type: ActionType; amount?: number; street: number; pot_before: number }
+interface TableStep { who: string; type: ActionType; amount?: number; street: number; pot_before: number }
 
 export interface TableState {
   seats: readonly string[];
@@ -31,6 +31,7 @@ export interface TableState {
   cursor: number; // seat index where the search for the next player starts
   over: null | "fold" | "showdown"; // fold: one player left. showdown: no more betting, cards come out
   lastRaise: null | { who: string; to: number; size: number; street: number };
+  raiseSize: number; // size of the last FULL raise on this street: an all-in that falls short does not change it
   steps: readonly TableStep[];
 }
 export type TableResult = { state: TableState } | { error: string };
@@ -61,7 +62,7 @@ export function start(setup: TableSetup): TableResult {
     state: {
       seats: [...setup.seats], bb: setup.bb, button, smallBlind, bigBlind, street: 0, current: setup.bb,
       committed, total: { ...committed }, folded: [], allIn: [], acted: [], cursor: setup.first, over: null,
-      lastRaise: null, steps: [],
+      lastRaise: null, raiseSize: 0, steps: [],
     },
   };
 }
@@ -83,9 +84,8 @@ export function nextToAct(s: TableState): string | null {
   return null;
 }
 
-/** The smallest legal raise-to now (the last raise size on top of the current bet; one big blind if nobody raised). */
-export const minRaiseTo = (s: TableState): number =>
-  s.current + Math.max(s.lastRaise && s.lastRaise.street === s.street ? s.lastRaise.size : 0, s.bb);
+/** The smallest legal raise-to now (the last full raise on top of the current bet; one big blind if nobody raised). */
+export const minRaiseTo = (s: TableState): number => s.current + Math.max(s.raiseSize, s.bb);
 
 /** After a street closes: next street, or the end of the hand. */
 function closeStreet(s: TableState): TableState {
@@ -94,7 +94,7 @@ function closeStreet(s: TableState): TableState {
   const canBet = alive.filter((x) => !s.allIn.includes(x));
   if (s.street === 3 || canBet.length <= 1) return { ...s, over: "showdown" };
   return {
-    ...s, street: s.street + 1, current: 0, acted: [], cursor: (s.button + 1) % s.seats.length,
+    ...s, street: s.street + 1, current: 0, raiseSize: 0, acted: [], cursor: (s.button + 1) % s.seats.length,
     committed: Object.fromEntries(s.seats.map((x) => [x, 0])),
   };
 }
@@ -113,8 +113,10 @@ export function apply(s: TableState, a: TableAction): TableResult {
     const committed = { ...s.committed, [a.who]: to };
     const total = { ...s.total, [a.who]: s.total[a.who] + added };
     const acted = raised ? [a.who] : [...s.acted, a.who];
-    const lastRaise = raised ? { who: a.who, to, size: to - s.current, street: s.street } : s.lastRaise;
-    return { ...s, committed, total, acted, current: raised ? to : s.current, lastRaise };
+    const size = to - s.current;
+    const lastRaise = raised ? { who: a.who, to, size, street: s.street } : s.lastRaise;
+    const raiseSize = raised && size >= Math.max(s.raiseSize, s.bb) ? size : s.raiseSize;
+    return { ...s, committed, total, acted, current: raised ? to : s.current, lastRaise, raiseSize };
   };
   switch (a.type) {
     case "fold":

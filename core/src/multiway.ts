@@ -10,18 +10,16 @@ import { Card, DECK, evaluate } from "./cards.js";
 import { drawWeighted, makeSampler, seededRng, type Rng } from "./equity.js";
 import { bubbleFactor } from "./icm.js";
 import { PRIOR, type OppStats } from "./policy.js";
-import { lookup, startingHandClass, type PushFoldTable, type SpotContext } from "./pushfold.js";
+import { COMBOS_PER_CLASS, TOLERANCE_BB, lookup, startingHandClass, type PushFoldTable, type SpotContext } from "./pushfold.js";
 import { priorRange } from "./range.js";
 import { handPct, pairKey } from "./ranges.js";
 
-export const MAX_DEPTH_BB = 15;
-export const MIN_DEPTH_BB = 2;
+const MAX_DEPTH_BB = 15;
+const MIN_DEPTH_BB = 2;
 export const MAX_OPPONENTS = 8;
 const TIGHTENING_PER_EXTRA_OPPONENT = 0.85; // each caller must also fear the others behind it
 const STYLE_MIN = 0.6, STYLE_MAX = 1.6; // VPIP relative to the average player scales the calling width
 const CALL_MIN = 0.03, CALL_MAX = 0.8;
-const BLIND_TOLERANCE = 0.01; // amounts are typed by hand: a hundredth of a big blind of slack
-const COMBOS_PER_CLASS = (label: string): number => (label.length === 2 ? 6 : label[2] === "s" ? 4 : 12);
 
 export interface MultiwayOpp { stats?: Partial<OppStats>; known?: readonly Card[] }
 export interface MultiwayOptions { rng?: Rng; nSims?: number; budgetMs?: number; now?: () => number }
@@ -84,7 +82,7 @@ export function multiwayPushAdvice(
   const k = opponents.length;
   if (boardCards !== 0 || ctx.structure !== "no_limit" || k < 2 || k > MAX_OPPONENTS || !(ctx.bb > 0)) return null;
   // the hero must put chips in to continue (blind to complete or a limped pot) and nobody has raised
-  if (!(ctx.to_call > 0) || ctx.to_call > ctx.bb * (1 + BLIND_TOLERANCE) || !(ctx.stack > 0)) return null;
+  if (!(ctx.to_call > 0) || ctx.to_call > ctx.bb * (1 + TOLERANCE_BB) || !(ctx.stack > 0)) return null;
   const depth = ctx.stack / ctx.bb;
   if (!(depth >= MIN_DEPTH_BB && depth <= MAX_DEPTH_BB)) return null;
   const base = nashCallWidth(table, depth);

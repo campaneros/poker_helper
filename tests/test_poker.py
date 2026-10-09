@@ -1,8 +1,6 @@
 import random
-import time
 
 import pytest
-from fastapi.testclient import TestClient
 
 from poker.cards import parse
 from poker.equity import simulate
@@ -60,50 +58,6 @@ def test_icm_pressure_makes_marginal_call_worse():
     cash = teacher(base(equity=0.4, to_call=8))["evs"][1]
     bubble = teacher(base(equity=0.4, to_call=8, bf=2.0))["evs"][1]
     assert bubble < cash
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    import app.server as srv
-    from poker.opponents import Store
-    monkeypatch.setattr(srv, "store", Store(tmp_path / "p.json"))
-    return TestClient(srv.app)
-
-
-def payload(**kw):
-    d = dict(hero=["Ah", "As"], board=[], bb=2, pot=6, to_call=4, stack=200, position=0.8,
-             opponents=[{"action": "raise"}], budget=0.5)
-    return {**d, **kw}
-
-
-def test_api_advise_fast_and_raises_with_aces(client):
-    t = time.perf_counter()
-    r = client.post("/api/advise", json=payload())
-    assert r.status_code == 200 and time.perf_counter() - t < 2
-    assert r.json()["advice"]["action"] in ("raise", "all-in")
-
-
-def test_api_pot_limit_caps_raise_and_tournament_works(client):
-    r = client.post("/api/advise", json=payload(structure="pot_limit", pot=20, to_call=10))
-    assert r.json()["advice"]["amount"] <= 10 + 30
-    r = client.post("/api/advise", json=payload(
-        tournament={"stacks": [200, 300, 500, 800], "payouts": [50, 30, 20]}))
-    assert r.json()["advice"]["bubble_factor"] >= 1
-
-
-def test_api_rejects_duplicates_and_bad_cards(client):
-    assert client.post("/api/advise", json=payload(hero=["Ah", "Ah"])).status_code == 422
-    assert client.post("/api/advise", json=payload(hero=["Ah", "Zz"])).status_code == 422
-    assert client.post("/api/advise", json=payload(board=["2c", "3c"])).status_code == 422
-
-
-def test_player_profile_updates_with_observed_hands(client):
-    p = client.post("/api/players", json={"name": "Mario"}).json()
-    for _ in range(30):
-        client.post(f"/api/players/{p['id']}/hand", json={"vpip": True, "pfr": True, "bets": 2})
-    s = client.get("/api/players").json()[0]
-    assert s["vpip"] > 0.6 and s["hands"] == 30
-    assert client.delete(f"/api/players/{p['id']}").status_code == 200
 
 
 def test_postflop_range_is_filtered_by_board_strength():

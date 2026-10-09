@@ -1,5 +1,5 @@
 /** MLP inference, masked prediction, action labelling and the end-to-end `advise` entry point. */
-import { parse } from "./cards.js";
+import { InputError, parse } from "./cards.js";
 import { simulate, type OppSpec, type Rng, type SimResult } from "./equity.js";
 import { bubbleFactor } from "./icm.js";
 import {
@@ -9,6 +9,7 @@ import {
 import { icmPushFoldAdvice, type EquityMatrix } from "./icmpushfold.js";
 import { multiwayPushAdvice, type MultiwayAdvice } from "./multiway.js";
 import { pushFoldAdvice, type PushFoldAdvice, type PushFoldTable } from "./pushfold.js";
+import { BOARD_FOR_STREET } from "./table.js";
 import { buildPosterior, classShares, effectiveFraction, fractionRange, topClasses, type ActionRecord } from "./range.js";
 
 export interface Weights {
@@ -51,7 +52,7 @@ export function predict(s: State, weights?: Weights): Prediction {
 }
 
 /** Python's round(): halves go to the even neighbour. Amounts must match the reference exactly. */
-export function roundHalfEven(x: number): number {
+function roundHalfEven(x: number): number {
   const f = Math.floor(x), d = x - f;
   if (d < 0.5) return f;
   if (d > 0.5) return f + 1;
@@ -110,8 +111,6 @@ export interface AdviseResult extends SimResult {
   multiway?: MultiwayAdvice; // approximate open-shove EV with 2+ opponents, when the spot is one it covers
 }
 
-const STREET_BY_BOARD: Record<number, number> = { 0: 0, 3: 1, 4: 2, 5: 3 };
-
 /** Where the Nash table is exact (cash, heads-up, short stack) it replaces the heuristic advice: one answer, not two.
  * Shove/call/fold come with the table's probability; amounts are all-in, the call, or nothing. */
 function nashAdvice(n: PushFoldAdvice, req: AdviseRequest, bubbleFactor: number): AdviseResult["advice"] {
@@ -130,15 +129,14 @@ export function advise(
 ): AdviseResult {
   const hero = req.hero.map(parse);
   const board = req.board.map(parse);
-  const street = STREET_BY_BOARD[board.length];
-  if (street === undefined || hero.length !== 2) throw new Error("servono 2 carte hero e board di 0, 3, 4 o 5 carte");
-  if (new Set([...hero, ...board]).size !== hero.length + board.length) throw new Error("carte duplicate");
+  const street = (BOARD_FOR_STREET as readonly number[]).indexOf(board.length);
+  if (street < 0 || hero.length !== 2) throw new InputError("servono 2 carte hero e board di 0, 3, 4 o 5 carte");
 
   const deadCards = (req.dead ?? []).map(parse);
   const knownBy = req.opponents.map((o) => (o.known ?? []).map(parse));
-  if (knownBy.some((k) => k.length > 2)) throw new Error("al massimo due carte mostrate per avversario");
+  if (knownBy.some((k) => k.length > 2)) throw new InputError("al massimo due carte mostrate per avversario");
   const everyCard = [...hero, ...board, ...deadCards, ...knownBy.flat()];
-  if (new Set(everyCard).size !== everyCard.length) throw new Error("carte duplicate");
+  if (new Set(everyCard).size !== everyCard.length) throw new InputError("carte duplicate");
   const table = new Set([...hero, ...board, ...deadCards]);
 
   const fracs: number[] = [], aggrs: number[] = [], folds: number[] = [];

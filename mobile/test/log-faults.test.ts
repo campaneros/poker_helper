@@ -201,6 +201,34 @@ describe("amending", () => {
   });
 });
 
+describe("input the API must not let through", () => {
+  it("refuses a style id it could never delete, and a street that is not a whole number", async () => {
+    const api = createLocalApi(memory(), weights);
+    expect((await api("POST", "/styles", { id: "mio stile", name: "X", vpip: 0.3, pfr: 0.2, af: 2 })).status).toBe(422);
+    expect((await api("POST", "/styles", { id: "mio_stile", name: "X", vpip: 0.3, pfr: 0.2, af: 2 })).status).toBe(200);
+    expect((await api("DELETE", "/styles/mio_stile")).status).toBe(200);
+    const bad = await api("POST", "/hands", { bb: 2, board: ["2c", "7d", "9h"], players: [{ id: "p" }], actions: [{ player: "p", street: 0.5, type: "bet", amount: 4 }] });
+    expect(bad.status).toBe(422);
+    expect(((await api("GET", "/hands")).body as unknown[]).length).toBe(0);
+  });
+
+  it("reports the size of the log even when the storage cannot be read", async () => {
+    const blocked: StorageLike = { getItem: () => { throw new Error("blocked"); }, setItem: () => undefined };
+    const r = await createLocalApi(blocked, weights)("GET", "/storage");
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ bytes: 0 });
+  });
+
+  it("answers 422 for bad input but does not hide a programming error behind it", async () => {
+    const ask = (api: ReturnType<typeof createLocalApi>, extra: object = {}) =>
+      api("POST", "/advise", { hero: ["Ah", "As"], board: [], bb: 2, pot: 3, to_call: 1, stack: 20, opponents: [{}], ...extra });
+    expect((await ask(createLocalApi(memory(), weights), { hero: ["Ah", "Ah"] })).status).toBe(422); // a duplicate card
+    expect((await ask(createLocalApi(memory(), weights), { hero: ["Ah", "Zz"] })).status).toBe(422); // a card that does not exist
+    // a broken table is a bug of ours, not of the user: it must throw, not come back as "your input is wrong"
+    await expect(ask(createLocalApi(memory(), weights, {} as never))).rejects.toThrow(TypeError);
+  });
+});
+
 describe("random sequences of creates, amends and deletes", () => {
   it("fold to exactly the state a plain model predicts, also after a trip through the file format", () => {
     let seed = 12345;

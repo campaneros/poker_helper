@@ -32,7 +32,10 @@ export interface SpotContext {
   tournament: boolean;
 }
 
-const TOLERANCE_BB = 0.01; // amounts are typed by hand: accept a hundredth of a big blind of slack
+export const TOLERANCE_BB = 0.01; // amounts are typed by hand: accept a hundredth of a big blind of slack
+
+/** Combinations of a class: 6 for a pair, 4 suited, 12 offsuit. */
+export const COMBOS_PER_CLASS = (label: string): number => (label.length === 2 ? 6 : label[2] === "s" ? 4 : 12);
 
 /** "AKs", "T9o", "77": the 169-class label of two hole cards. */
 export function startingHandClass(a: Card, b: Card): string {

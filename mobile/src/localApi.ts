@@ -1,7 +1,7 @@
 /** On-device replacement for the FastAPI backend: the /api/* contract, served by the TypeScript core.
  * All data lives in the append-only event log (store.ts); players' stats are derived from recorded hands. */
 import { advise, type AdviseRequest, type OppInput, type Weights } from "../../core/src/advisor.js";
-import { parse } from "../../core/src/cards.js";
+import { InputError, parse } from "../../core/src/cards.js";
 import type { EquityMatrix } from "../../core/src/icmpushfold.js";
 import type { PushFoldTable } from "../../core/src/pushfold.js";
 import { deriveStats, validateHand, type HandAction, type HandRecord } from "../../core/src/history.js";
@@ -22,7 +22,7 @@ const HERO = "hero";
 
 class ValidationError extends Error {}
 
-// ---------- validation helpers (mirror the pydantic models of app/server.py) ----------
+// ---------- validation helpers ----------
 const num = (v: unknown, name: string, min: number, max = Infinity, dflt?: number): number => {
   const x = v === undefined && dflt !== undefined ? dflt : v;
   if (typeof x !== "number" || !Number.isFinite(x) || x < min || x > max) throw new ValidationError(`${name} non valido`);
@@ -53,6 +53,7 @@ function parseActions(v: unknown, who: (a: any) => string | undefined): HandActi
     const player = who(a);
     if (!player) throw new ValidationError("giocatore dell'azione non valido");
     const out: HandAction = { player, street: num(a.street, "strada", 0, 3), type: a.type };
+    if (!Number.isInteger(out.street)) throw new ValidationError("strada non valida");
     if (a.amount !== undefined) out.amount = num(a.amount, "importo", 0);
     if (a.pot_before !== undefined) out.pot_before = num(a.pot_before, "piatto", 0);
     return out;
@@ -170,7 +171,7 @@ function parseAdvise(body: any, state: StoreState): AdviseRequest {
 
 const ok = (body: unknown): ApiResult => ({ status: 200, body });
 const fail = (status: number, msg: string): ApiResult => ({ status, body: { detail: status === 422 ? [{ msg }] : msg } });
-const INPUT_ERROR = /carta|carte|board|duplicate|servono|mostrate/;
+const LIST_LIMIT = 50; // hands returned by a list: the shim passes no query string, so it is always this
 
 export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?: PushFoldTable, icmMatrix?: EquityMatrix) {
   const save = (...events: StoreEvent[]): void => appendEvents(storage, events);
@@ -221,8 +222,7 @@ export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?
           return ok(refreshed(target.id));
         }
         if (method === "GET" && part === "hands") {
-          const limit = num(body?.limit, "limite", 1, 200, 50);
-          return ok(handsOf(state, target.id).slice(0, limit));
+          return ok(handsOf(state, target.id).slice(0, LIST_LIMIT));
         }
         if (method === "POST" && part === "hand") { // quick manual counters (kept for compatibility)
           const bets = num(body?.bets, "bets", 0, 50, 0), calls = num(body?.calls, "calls", 0, 50, 0);
@@ -236,11 +236,13 @@ export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?
       if (route === "GET /styles") return ok(allStyles(state));
       if (route === "POST /styles") {
         const id = body?.id === undefined ? shortId("s_") : text(body.id, "id stile", 40);
+        if (!/^[\w:-]+$/.test(id)) throw new ValidationError("id stile non valido"); // the delete route could not match it
         if (id.startsWith("builtin:")) return fail(422, "gli stili predefiniti non si modificano");
         const vpip = num(body?.vpip, "vpip", 0, 1), pfr = num(body?.pfr, "pfr", 0, 1), af = num(body?.af, "aggressività", 0, 20);
         if (pfr > vpip) throw new ValidationError("il PFR non può superare il VPIP");
-        save({ t: "style", id, name: text(body?.name, "nome"), vpip, pfr, af, ts: now });
-        return ok({ id, name: text(body?.name, "nome"), vpip, pfr, af });
+        const name = text(body?.name, "nome");
+        save({ t: "style", id, name, vpip, pfr, af, ts: now });
+        return ok({ id, name, vpip, pfr, af });
       }
       const style = /^\/styles\/([\w:-]+)$/.exec(path);
       if (style && method === "DELETE") {
@@ -252,12 +254,12 @@ export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?
 
       // ----- hand history -----
       if (route === "GET /hands") {
-        const limit = num(body?.limit, "limite", 1, 200, 50);
-        return ok([...state.hands.values()].sort((a, b) => b.ts - a.ts).slice(0, limit));
+        return ok([...state.hands.values()].sort((a, b) => b.ts - a.ts).slice(0, LIST_LIMIT));
       }
       if (route === "GET /storage") {
-        const text = storage.getItem(EVENTS_KEY) ?? "";
-        return ok({ bytes: text.length, events: text.split("\n").filter(Boolean).length, skipped: state.skipped });
+        let log = "";
+        try { log = storage.getItem(EVENTS_KEY) ?? ""; } catch { /* unreadable storage: reported as empty, state.skipped says so */ }
+        return ok({ bytes: log.length, events: log.split("\n").filter(Boolean).length, skipped: state.skipped });
       }
       if (route === "POST /hands") {
         const id = handId(body?.id) ?? shortId("h_");
@@ -279,7 +281,7 @@ export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?
       return fail(404, "non trovato");
     } catch (e) {
       if (e instanceof StorageWriteError) return fail(507, e.message);
-      if (e instanceof ValidationError || (e instanceof Error && INPUT_ERROR.test(e.message))) {
+      if (e instanceof ValidationError || e instanceof InputError) { // bad input; anything else is a bug and must surface
         return fail(422, (e as Error).message);
       }
       throw e;

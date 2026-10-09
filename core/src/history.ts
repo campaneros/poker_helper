@@ -3,7 +3,7 @@
  * evidence accumulates. */
 import { PRIOR, foldToBet, type OppStats } from "./policy.js";
 import type { ActionType } from "./range.js";
-import { replay } from "./table.js";
+import { BOARD_FOR_STREET, replay, streetName } from "./table.js";
 
 export interface HandAction {
   player: string; // player id, or "anon:N" for someone who is not saved
@@ -27,8 +27,6 @@ export interface HandRecord {
   table?: { seats: string[]; first: number };
 }
 
-const BOARD_FOR_STREET = [0, 3, 4, 5];
-
 /** Why a hand record cannot be true, or null. Used before a recorded or amended hand is stored: the stats are derived
  * from these actions, so an impossible sequence would silently skew them. */
 export function validateHand(hand: Pick<HandRecord, "board" | "actions" | "players" | "table" | "bb">): string | null {
@@ -38,7 +36,7 @@ export function validateHand(hand: Pick<HandRecord, "board" | "actions" | "playe
     if (a.street < street) return "le azioni devono essere in ordine di strada";
     street = a.street;
     if (hand.board.length < BOARD_FOR_STREET[a.street]) {
-      return `un'azione al ${["preflop", "flop", "turn", "river"][a.street]} richiede ${BOARD_FOR_STREET[a.street]} carte di board`;
+      return `un'azione al ${streetName(a.street)} richiede ${BOARD_FOR_STREET[a.street]} carte di board`;
     }
     if (out.has(a.player)) return "un giocatore che ha foldato non può agire ancora";
     if (a.type === "fold") out.add(a.player);
@@ -53,7 +51,7 @@ function validateAtTable(hand: Pick<HandRecord, "actions" | "bb">, table: { seat
     hand.actions.map((a) => ({ who: a.player, type: a.type, ...(a.amount !== undefined ? { amount: a.amount } : {}) })));
   if ("error" in r) return r.at >= 0 ? `azione ${r.at + 1}: ${r.error}` : r.error;
   const wrong = r.state.steps.findIndex((step, i) => step.street !== hand.actions[i].street);
-  return wrong >= 0 ? `azione ${wrong + 1}: al tavolo cade al ${["preflop", "flop", "turn", "river"][r.state.steps[wrong].street]}` : null;
+  return wrong >= 0 ? `azione ${wrong + 1}: al tavolo cade al ${streetName(r.state.steps[wrong].street)}` : null;
 }
 
 /** Counters from before the action log existed (or from the quick manual recorder). */

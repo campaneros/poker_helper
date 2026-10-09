@@ -2,8 +2,7 @@
  * Field names are snake_case on purpose: they mirror the Python reference and the golden vectors. */
 
 export const SIZES = [0.33, 0.5, 0.75, 1.0, 1.5] as const; // bet size as fraction of (pot + call)
-export const FOLD_OR_CHECK = 0, CALL = 1, RAISE = 2;
-export const N_FEATURES = 21;
+export const CALL = 1, RAISE = 2;
 const TEMPERATURE = 0.08; // softmax temperature, in units of pot
 
 export interface State {
@@ -28,7 +27,7 @@ export type TeacherResult = { evs: [number, number, number]; size_frac: number }
 
 const sum = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0);
 
-export function defaultFolds(s: State): number[] {
+function defaultFolds(s: State): number[] {
   const ranges = s.opp_ranges.length ? s.opp_ranges : Array<number>(Math.max(s.n_opp, 1)).fill(s.opp_range);
   return ranges.map((r) => 0.42 * (1 - r));
 }

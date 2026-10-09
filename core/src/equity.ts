@@ -19,7 +19,7 @@ export function seededRng(seed: number): Rng {
   };
 }
 
-export const CLASS_NAMES: Record<number, string> = {
+const CLASS_NAMES: Record<number, string> = {
   1: "Scala colore", 2: "Poker", 3: "Full", 4: "Colore", 5: "Scala",
   6: "Tris", 7: "Doppia coppia", 8: "Coppia", 9: "Carta alta",
 };

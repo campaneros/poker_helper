@@ -33,7 +33,6 @@ const fmt = (x) => (Math.round(x * 100) / 100).toString();
 const pct = (x) => Math.round(x * 100) + "%";
 const oppByUid = (uid) => state.opps.find((o) => o.uid === uid);
 const oppName = (o) => (state.players.find((p) => p.id === o.player_id)?.name ?? `Avversario ${state.opps.indexOf(o) + 1}`);
-const whoName = (who) => (who === "hero" ? "Tu" : oppName(oppByUid(+who.slice(1)) ?? { player_id: null }));
 const say = (msg) => { $("notice").textContent = msg; };
 
 async function api(path, opts) {
@@ -71,7 +70,7 @@ function slotButton(sel, label, extraClass = "") {
     onclick: () => {
       if (sel.startsWith("k") && sel === state.sel && c) writeCard(sel, null); // tap a selected shown card again to clear it
       else state.sel = sel;
-      renderAll();
+      renderTableSide();
     },
   }, c ? pretty(c) : "·");
 }
@@ -101,11 +100,11 @@ function renderCards() {
   $("deadRow").replaceChildren(
     ...state.dead.map((c, i) => h("button", {
       class: "chip" + (isRed(c) ? " red" : ""), "aria-label": `Togli ${c} dalle carte viste`,
-      onclick: () => { state.dead.splice(i, 1); renderAll(); },
+      onclick: () => { state.dead.splice(i, 1); renderTableSide(); },
     }, pretty(c) + " ✕")),
     h("button", {
       class: "chip add" + (state.sel === "dead" ? " sel" : ""), "aria-label": "Aggiungi carta vista",
-      onclick: () => { state.sel = "dead"; renderAll(); },
+      onclick: () => { state.sel = "dead"; renderTableSide(); },
     }, state.dead.length ? "+" : "+ carta vista"));
 }
 
@@ -123,14 +122,12 @@ function pick(c) {
     const next = state.slots.findIndex((x, j) => j > i && !x);
     state.sel = "s" + (next !== -1 ? next : Math.max(state.slots.findIndex((x) => !x), 0));
   }
-  renderAll();
+  renderTableSide();
 }
 
 /* ---------- players, styles, history ---------- */
 async function loadPlayers() { state.players = await api("/players"); }
-async function loadStyles() {
-  try { state.styles = await api("/styles"); } catch { state.styles = []; } // an older backend has no styles
-}
+async function loadStyles() { state.styles = await api("/styles"); }
 
 function renderPlayers() {
   $("addSel").replaceChildren(h("option", { value: "" }, "Sconosciuto (stile medio)"),
@@ -140,8 +137,7 @@ function renderPlayers() {
     const styleSel = h("select", {
       "aria-label": `Stile di ${p.name}`,
       onchange: async (e) => { await send("PUT", `/players/${p.id}/style`, { style_id: e.target.value || null }); await refreshAll(); },
-    }, h("option", { value: "" }, "Nessuno (stile medio)"),
-      ...state.styles.map((s) => h("option", { value: s.id, selected: s.id === p.style_id }, s.name)));
+    }, ...styleOptions(p.style_id));
     const renameForm = () => {
       const input = h("input", { type: "text", maxlength: "40", value: p.name, "aria-label": `Nuovo nome di ${p.name}`, "data-name-input": "1" });
       const save = async () => {
@@ -159,13 +155,15 @@ function renderPlayers() {
     return h("li", { class: "player" },
       h("div", {}, state.renaming === p.id ? renameForm() : h("strong", {}, p.name),
         h("span", { class: "mute" }, ` — ${p.style} · ${p.hands} mani · VPIP ${pct(p.vpip)} · PFR ${pct(p.pfr)} · AF ${p.af.toFixed(1)}`)),
-      h("div", { class: "row" }, state.styles.length ? styleSel : null,
+      h("div", { class: "row" }, styleSel,
         h("button", { onclick: () => toggleHistory(p, history) }, "Storico"),
         h("button", { "aria-label": `Rinomina ${p.name}`, onclick: () => { state.renaming = p.id; renderPlayers(); } }, "Rinomina"),
         h("button", {
           onclick: async () => {
+            const seated = state.opps.filter((o) => o.player_id === p.id);
+            if (seated.length && state.acts.length) { say(`${p.name} è al tavolo e hai già registrato azioni: annullale prima.`); return; }
             await send("DELETE", "/players/" + p.id);
-            state.opps = state.opps.filter((o) => o.player_id !== p.id);
+            seated.forEach(removeOpp); // his seat goes too
             await refreshAll();
           },
         }, "Elimina")),
@@ -201,16 +199,18 @@ function historyEntry(p, hand, box) {
     h("div", { class: "mute" }, new Date(hand.ts).toLocaleString("it") + (hand.board.length ? " · board " + hand.board.map(pretty).join(" ") : "")),
     h("div", {}, byStreet.length ? byStreet.join(" → ") : "Nessuna azione registrata"),
     shown?.length ? h("div", {}, "Ha mostrato: " + shown.map(pretty).join(" ")) : null,
-    h("button", { class: "ghost", "aria-label": "Modifica questa mano", onclick: (e) => e.target.closest(".hand").replaceWith(handEditor(hand)) }, "Modifica mano"),
-    h("button", {
-      class: "ghost", "aria-label": "Elimina questa mano",
-      onclick: async () => { await send("DELETE", "/hands/" + hand.id); await refreshAll(); },
-    }, "Elimina mano"));
+    ...handButtons(hand, ".hand"));
 }
+
+/** Edit and delete buttons of a hand; `root` is the element the editor replaces. */
+const handButtons = (hand, root) => [
+  h("button", { class: "ghost", "aria-label": "Modifica questa mano", onclick: (e) => e.target.closest(root).replaceWith(handEditor(hand)) }, "Modifica mano"),
+  h("button", { class: "ghost", "aria-label": "Elimina questa mano", onclick: async () => { await send("DELETE", "/hands/" + hand.id); await refreshAll(); } }, "Elimina mano"),
+];
 
 /* ---------- amend a saved hand ---------- */
 const ACTION_TYPES = ["fold", "check", "call", "bet", "raise", "allin"];
-const parseCards = (t) => t.split(/[\s,]+/).filter(Boolean).map((c) => c[0].toUpperCase() + c.slice(1).toLowerCase());
+const parseCards = (t) => t.split(/[\s,]+/).filter(Boolean).map((c) => c.replace(/^10/, "T")).map((c) => c[0].toUpperCase() + c.slice(1).toLowerCase());
 /** A form that replaces the hand in the history. The server re-validates everything (impossible sequences are refused),
  * and saving is an amend event: the original time is kept, so the recency weighting of the stats does not move. */
 function handEditor(hand) {
@@ -277,8 +277,7 @@ function handEditor(hand) {
 
 function renderStyles() {
   const chosen = $("newStyle").value;
-  $("newStyle").replaceChildren(h("option", { value: "" }, "Nessuno (stile medio)"),
-    ...state.styles.map((s) => h("option", { value: s.id, selected: s.id === chosen }, s.name)));
+  $("newStyle").replaceChildren(...styleOptions(chosen));
   $("styleList").replaceChildren(...state.styles.map((s) => h("li", {},
     h("span", {}, `${s.name} — VPIP ${pct(s.vpip)} · PFR ${pct(s.pfr)} · AF ${s.af}`),
     s.builtin ? null : h("button", {
@@ -292,7 +291,8 @@ const ACTIONS = [["none", "Nessuna / check"], ["call", "Call"], ["bet", "Bet"], 
 const SIZES = [[0.33, "1/3 piatto"], [0.5, "1/2 piatto"], [0.66, "2/3 piatto"], [1, "piatto"], [1.5, "overbet"]];
 const newOpp = (player_id) => ({ uid: ++state.uid, player_id, action: "none", bet_frac: 0.66, known: [null, null], folded: false, villain: "" });
 /** The stacks typed for the tournament, as numbers (hero first). */
-const tournamentStacks = () => $("tStacks").value.split(/[,\s;]+/).filter(Boolean).map(Number).filter((x) => x >= 0);
+const numbersIn = (id) => $(id).value.split(/[,\s;]+/).filter(Boolean).map(Number);
+const tournamentStacks = () => numbersIn("tStacks").filter((x) => x >= 0);
 
 /** The bet as a fraction of the pot BEFORE it. A typed amount wins over the preset size; the pot field already
  * contains this bet, so it is taken out first. */
@@ -303,7 +303,9 @@ function betFraction(o) {
 }
 
 function renderOpps() {
+  const stackCount = tournamentStacks().length;
   $("opps").replaceChildren(...state.opps.map((o) => {
+    if (+o.villain >= stackCount) o.villain = ""; // the stack list shrank: the chosen entry is gone
     const p = state.players.find((x) => x.id === o.player_id);
     const sizeLabel = h("label", {}, "Taglia puntata", h("select", {
       "aria-label": "Taglia puntata", onchange: (e) => (o.bet_frac = +e.target.value),
@@ -318,7 +320,7 @@ function renderOpps() {
       h("header", {}, h("strong", {}, oppName(o) + (o.folded ? " (fold)" : "")),
         h("span", { class: "tag" }, p ? `${p.style} · ${p.hands} mani` : o.style_id ? state.styles.find((s) => s.id === o.style_id)?.name ?? "stile medio" : "stile medio"),
         h("button", {
-          "aria-label": "Rimuovi",
+          "aria-label": `Rimuovi ${oppName(o)}`,
           onclick: () => removeOpp(o),
         }, "✕")),
       nameControl(o),
@@ -341,7 +343,7 @@ function renderOpps() {
 /* ---------- action log ---------- */
 function renderLog() {
   $("log").replaceChildren(...state.log.map((l) => h("li", {},
-    `${STREETS[l.street]} · ${whoName(l.who)}: ${ACTION_NAMES[l.type]}${l.amount ? " " + fmt(l.amount) : ""}` +
+    `${STREETS[l.street]} · ${seatName(l.who)}: ${ACTION_NAMES[l.type]}${l.amount ? " " + fmt(l.amount) : ""}` +
     (l.pot_before ? ` (piatto ${fmt(l.pot_before)})` : ""))));
 }
 
@@ -366,7 +368,11 @@ function syncFromTable() {
     const mine = state.log.filter((l) => l.who === keyOf(o));
     o.folded = !!st && st.folded.includes(keyOf(o));
     const last = mine[mine.length - 1];
-    if (!last) continue;
+    if (!last) { // nothing logged any more (undo): forget what the log had set, keep what the user chose by hand
+      if (o.fromTable) { o.action = "none"; o.bet_amount = undefined; o.fromTable = false; }
+      continue;
+    }
+    o.fromTable = true;
     o.action = OPP_ACTION[last.type];
     if (last.amount && last.pot_before > 0) { o.bet_frac = last.amount / last.pot_before; o.bet_amount = undefined; } // the table is explicit
   }
@@ -380,13 +386,18 @@ function syncFromTable() {
 
 function afterTableChange() {
   syncFromTable();
-  renderAll();
+  renderTableSide();
 }
+
+const isSeated = (playerId, except = null) => !!playerId && state.opps.some((o) => o !== except && o.player_id === playerId);
+/** Why nobody can sit down right now, or null. */
+const seatBlock = () => state.opps.length >= 9 ? "Il tavolo è pieno (10 giocatori, con te)."
+  : state.acts.length ? "Hai già registrato azioni: annullale per cambiare i giocatori al tavolo." : null;
 
 /** Seat a new opponent (after the given seat if it is at the table, otherwise last). Returns him, or null if he cannot sit. */
 function addOpp(playerId, { after = null, styleId = null } = {}) {
-  if (state.opps.length >= 9) { say("Il tavolo è pieno (10 giocatori, con te)."); return null; }
-  if (state.acts.length) { say("Hai già registrato azioni: annullale per cambiare i giocatori al tavolo."); return null; }
+  const blocked = seatBlock() ?? (isSeated(playerId) ? "È già seduto al tavolo." : null);
+  if (blocked) { say(blocked); return null; }
   const o = newOpp(playerId);
   if (!playerId && styleId) o.style_id = styleId;
   state.opps.push(o);
@@ -406,7 +417,7 @@ function styleControl(o) {
     "aria-label": `Stile di ${seatName(keyOf(o))}`,
     onchange: async (e) => {
       const id = e.target.value || null;
-      if (!p) { o.style_id = id; afterTableChange(); return; }
+      if (!p) { o.style_id = id; renderTableSide(); return; }
       try { await send("PUT", `/players/${p.id}/style`, { style_id: id }); await refreshAll(); } catch (err) { say(err.message); }
     },
   }, ...styleOptions(p ? p.style_id : o.style_id)));
@@ -429,13 +440,14 @@ function suggestionBlock(p) {
 /** A player sits down at the table: a saved one, or a new one with a name and style of the user's choice. */
 async function seatFromPanel(profileId, rawName, styleId, err) {
   err.textContent = "";
-  if (state.acts.length) { err.textContent = "Hai già registrato azioni: annullale per far sedere qualcuno."; return; }
+  const blocked = seatBlock(); // before anything is saved: a refused seat must not leave a new profile behind
+  if (blocked) { err.textContent = blocked; return; }
   try {
     let playerId = profileId || null;
     const name = rawName.trim();
     if (!playerId && name) {
       const same = state.players.find((p) => p.name.toLowerCase() === name.toLowerCase());
-      if (same && state.opps.some((x) => x.player_id === same.id)) throw new Error(`${same.name} è già seduto al tavolo.`);
+      if (same && isSeated(same.id)) throw new Error(`${same.name} è già seduto al tavolo.`);
       playerId = same ? same.id : (await send("POST", "/players", { name, style_id: styleId || null })).id;
     }
     const o = addOpp(playerId, { after: state.menu, styleId });
@@ -453,7 +465,7 @@ function renderAddSeat() {
   const box = $("addSeatPanel");
   if (!state.adding) { box.hidden = true; return; }
   box.hidden = false;
-  const close = h("button", { type: "button", "aria-label": "Chiudi", onclick: () => { state.adding = false; renderAddSeat(); } }, "✕");
+  const close = h("button", { type: "button", "aria-label": "Chiudi l'aggiunta di un giocatore", onclick: () => { state.adding = false; renderAddSeat(); } }, "✕");
   if (state.acts.length) {
     box.replaceChildren(h("header", {}, h("strong", {}, "Aggiungi giocatore"), close),
       h("p", { class: "mute" }, "Hai già registrato azioni: annullale per cambiare i giocatori al tavolo."));
@@ -490,7 +502,7 @@ async function nameOpponent(o, raw) {
       await send("PUT", "/players/" + o.player_id, { name });
       say(`Rinominato: ${name}.`);
     } else if (same) {
-      if (state.opps.some((x) => x !== o && x.player_id === same.id)) throw new Error(`${same.name} è già seduto al tavolo.`);
+      if (isSeated(same.id, o)) throw new Error(`${same.name} è già seduto al tavolo.`);
       o.player_id = same.id;
       say(`Esiste già un profilo «${same.name}»: assegnato a questo posto.`);
     } else {
@@ -598,15 +610,20 @@ function renderSeatMenu() {
   const opp = key === "hero" ? null : oppByUid(+key.slice(1));
   const free = !state.acts.length;
   const parts = [h("header", {}, h("strong", {}, seatName(key)),
-    h("button", { "aria-label": "Chiudi", onclick: () => { state.menu = null; renderTable(); renderSeatMenu(); } }, "✕"))];
+    h("button", { "aria-label": `Chiudi il menu di ${seatName(key)}`, onclick: () => { state.menu = null; renderTable(); renderSeatMenu(); } }, "✕"))];
   if (opp) {
     parts.push(nameControl(opp));
     parts.push(styleControl(opp));
-    const saved = state.players.find((p) => p.id === opp.player_id);
-    if (saved && suggestionBlock(saved)) parts.push(suggestionBlock(saved));
+    const hint = suggestionBlock(state.players.find((p) => p.id === opp.player_id) ?? {});
+    if (hint) parts.push(hint);
     parts.push(h("label", {}, "Profilo", h("select", {
       "aria-label": `Profilo del giocatore al posto di ${seatName(key)}`,
-      onchange: (e) => { opp.player_id = e.target.value || null; opp.style_id = null; afterTableChange(); },
+      onchange: (e) => {
+        const id = e.target.value || null;
+        if (isSeated(id, opp)) { say("È già seduto in un altro posto."); renderSeatMenu(); return; }
+        opp.player_id = id; opp.style_id = null;
+        renderTableSide(); // a name or a style changes nothing about pot and turns: do not overwrite what was typed
+      },
     }, h("option", { value: "" }, "Sconosciuto (stile medio)"),
       ...state.players.map((p) => h("option", { value: p.id, selected: p.id === opp.player_id }, `${p.name} · ${p.style}`)))));
   }
@@ -676,8 +693,7 @@ function handCard(hand) {
     hand.board.length ? h("p", {}, "Board: " + hand.board.map(pretty).join(" ")) : null,
     ...lines.map((l) => h("p", {}, l)),
     shown.length ? h("p", {}, "Mostrate: " + shown.join(" · ")) : null,
-    h("button", { class: "ghost", "aria-label": "Modifica questa mano", onclick: (e) => e.target.closest("li").replaceWith(handEditor(hand)) }, "Modifica mano"),
-    h("button", { class: "ghost", "aria-label": "Elimina questa mano", onclick: async () => { await send("DELETE", "/hands/" + hand.id); await refreshAll(); } }, "Elimina mano")));
+    ...handButtons(hand, "li")));
 }
 
 function renderHandLog() {
@@ -709,7 +725,8 @@ async function saveHand() {
     state.first = state.seats[(state.seats.indexOf(state.first) + 1) % state.seats.length];
     state.acts = []; state.undo = []; state.menu = null;
     state.slots.fill(null); state.sel = "s0"; state.dead = []; state.log = [];
-    for (const o of state.opps) { o.known = [null, null]; o.folded = false; o.action = "none"; }
+    for (const o of state.opps) { o.known = [null, null]; o.action = "none"; o.fromTable = false; }
+    syncFromTable(); // the new hand starts from the blinds
     await refreshAll();
     say(`Mano salvata (${hand.actions.length} azioni). Le statistiche dei giocatori sono aggiornate.`);
   } catch (e) {
@@ -752,8 +769,7 @@ function buildRequest() {
     }),
   };
   if (mode === "tournament") {
-    const list = (id) => $(id).value.split(/[,\s;]+/).filter(Boolean).map(Number);
-    const stacks = list("tStacks"), payouts = list("tPays");
+    const stacks = numbersIn("tStacks"), payouts = numbersIn("tPays");
     if (stacks.length < 2 || !payouts.length || [...stacks, ...payouts].some((x) => !(x >= 0)))
       throw new Error("Torneo: inserisci gli stack di tutti i giocatori e i premi.");
     const chosen = active.length === 1 ? active[0].villain : "";
@@ -866,19 +882,21 @@ async function refreshAll() {
   await Promise.all([loadPlayers(), loadStyles(), api("/hands").then((h) => { state.hands = h; }).catch(() => { state.hands = []; })]);
   renderAll();
 }
-function renderAll() {
-  renderCards(); renderOpps(); renderLog(); renderTable(); renderAddSeat(); renderSeatMenu(); renderPlayers(); renderStyles(); renderHandLog();
-}
+// card taps and table edits redraw only the table side: the roster and the hand history may hold an open editor
+function renderTableSide() { renderCards(); renderOpps(); renderLog(); renderTable(); renderAddSeat(); renderSeatMenu(); }
+function renderLists() { renderPlayers(); renderStyles(); renderHandLog(); }
+function renderAll() { renderTableSide(); renderLists(); }
 
 $("go").onclick = go;
 document.addEventListener("keydown", (e) => {
-  const typing = ["newName", "styleName"].includes(e.target.id) || e.target.dataset?.nameInput; // Enter in these fields is not "advise"
+  // Enter in these fields is not "advise"
+  const typing = ["newName", "styleName"].includes(e.target.id) || e.target.dataset?.nameInput || !!e.target.closest?.("#seatMenu, #addSeatPanel, .editor, #roster");
   if (e.key === "Enter" && !typing && !["BUTTON", "SELECT", "SUMMARY"].includes(e.target.tagName)) go();
 });
 $("clearCards").onclick = () => {
   state.slots.fill(null); state.sel = "s0"; state.dead = [];
   for (const o of state.opps) o.known = [null, null];
-  renderAll();
+  renderTableSide();
 };
 $("structure").onchange = (e) => { $("tourney").hidden = e.target.value !== "tournament"; renderOpps(); };
 $("tStacks").addEventListener("input", renderOpps);
@@ -920,5 +938,3 @@ $("styleAdd").onclick = async () => {
 
 addOpp(null);
 refreshAll().catch(() => {});
-// Native app (Capacitor): assets are local, a service worker would only risk serving stale files after an update.
-if ("serviceWorker" in navigator && !window.POKER_NATIVE) navigator.serviceWorker.register("sw.js").catch(() => {});

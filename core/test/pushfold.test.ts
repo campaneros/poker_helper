@@ -10,7 +10,6 @@ const read = (rel: string) => JSON.parse(readFileSync(new URL(rel, import.meta.u
 const table = read("../pushfold.json") as PushFoldTable;
 const nash = read("../../bench/data/pushfold_nash.json");
 const hand = (a: string, b: string): [number, number] => [parse(a), parse(b)];
-const col = (label: string) => table.classes.indexOf(label);
 
 /** Small blind to act at `bbs` effective big blinds (blinds 1/2, so bb = 2). */
 const smallBlind = (bbs: number, extra: Partial<SpotContext> = {}): SpotContext =>

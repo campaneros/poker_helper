@@ -11,10 +11,9 @@ si adattano a ciò che gli avversari fanno davvero, e stima cosa possono avere a
 |---|---|
 | `core/` | Il motore, in TypeScript: valutatore, equity Monte Carlo, range per giocatore, ICM, statistiche dallo storico, rete neurale. È ciò che gira sul telefono. |
 | `mobile/` | L'app Android (Capacitor): archivio a eventi sul telefono, interfaccia, test end-to-end, controlli di sicurezza dell'APK. Vedi `mobile/README.md`. |
-| `app/static/` | L'interfaccia (HTML/CSS/JS), condivisa dall'app e dal vecchio server. |
+| `app/static/` | L'interfaccia (HTML/CSS/JS): viene incorporata nell'app da `mobile/build-web.mjs`. |
 | `poker/`, `train.py` | Riferimento in Python: policy EV ("insegnante"), addestramento della rete, motore storico. Non gira sul telefono. |
 | `bench/`, `tests/` | Banco di prova: partite simulate contro bot, vettori di riferimento (`tests/golden`), test Python. |
-| `run.py`, `app/server.py` | Il vecchio server locale (non necessario per l'app). |
 
 ## Come si fida del risultato
 
@@ -25,9 +24,9 @@ Le parti nate dopo (range, carte note, storico) si verificano contro enumerazion
 I test sono controllati con mutazioni: rompere apposta il codice deve far fallire almeno un test.
 
 ```bash
-.venv/bin/python -m pytest -q        # Python: 62 test (banco di prova, vettori, server, push/fold, Deep CFR)
-(cd core && npx vitest run)          # motore: 162 test
-(cd mobile && npx vitest run)        # archivio, guasti del registro, tavolo, nomi, stili, suggerimenti e rotte: 102 test
+.venv/bin/python -m pytest -q        # Python: 58 test (banco di prova, vettori, push/fold, Deep CFR)
+(cd core && npx vitest run)          # motore: 164 test
+(cd mobile && npx vitest run)        # archivio, guasti del registro, tavolo, nomi, stili, suggerimenti e rotte: 105 test
 .venv/bin/python -m bench.sim --hands 3000     # simulazione heads-up contro bot
 .venv/bin/python -m bench.table --hands 6000   # simulazione a 3-6 giocatori
 ```
