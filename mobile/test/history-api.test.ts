@@ -397,3 +397,32 @@ describe("nicknames for players", () => {
     expect(((await api("GET", "/players")).body as any[]).map((p) => p.name).sort()).toEqual(["ANNA", "Bruno"]);
   });
 });
+
+describe("a new player starts with the style chosen for him", () => {
+  it("is created with that style, which his stats start from", async () => {
+    const api = createLocalApi(memory(), weights);
+    const nit = (await api("POST", "/players", { name: "Tizio", style_id: "builtin:nit" })).body as any;
+    const plain = (await api("POST", "/players", { name: "Caio" })).body as any;
+    expect(nit.style_id).toBe("builtin:nit");
+    expect(nit.vpip).toBeCloseTo(0.15, 2); // no hands yet: the style is all there is
+    expect(plain.style_id).toBeNull();
+    expect(plain.vpip).toBeCloseTo(0.28, 2);
+  });
+  it("refuses an unknown style without creating the player, and a name already in use", async () => {
+    const api = createLocalApi(memory(), weights);
+    expect((await api("POST", "/players", { name: "Tizio", style_id: "builtin:nope" })).status).toBe(404);
+    expect(((await api("GET", "/players")).body as unknown[]).length).toBe(0);
+    await api("POST", "/players", { name: "Tizio" });
+    const twin = await api("POST", "/players", { name: "tizio" });
+    expect(twin.status).toBe(422);
+    expect(JSON.stringify(twin.body)).toMatch(/esiste già/);
+    expect(((await api("GET", "/players")).body as unknown[]).length).toBe(1);
+  });
+  it("a custom style can be the starting one too", async () => {
+    const api = createLocalApi(memory(), weights);
+    const style = (await api("POST", "/styles", { name: "Il fish del giovedì", vpip: 0.6, pfr: 0.1, af: 0.8 })).body as any;
+    const p = (await api("POST", "/players", { name: "Pino", style_id: style.id })).body as any;
+    expect(p.style_name).toBe("Il fish del giovedì");
+    expect(p.vpip).toBeCloseTo(0.6, 2);
+  });
+});

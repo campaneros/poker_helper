@@ -11,7 +11,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   slots: Array(7).fill(null), sel: "s0", suit: "h", dead: [], players: [], styles: [], opps: [], log: [], uid: 0,
   // the table: seats in clockwise order ("hero" or "o<uid>"), who acts first before the flop, what was done so far
-  seats: ["hero"], first: null, acts: [], undo: [], menu: null, hands: [],
+  seats: ["hero"], first: null, acts: [], undo: [], menu: null, hands: [], renaming: null,
 };
 const T = window.POKER_TABLE; // the betting engine (core/src/table.ts), installed by the app shell
 
@@ -142,11 +142,26 @@ function renderPlayers() {
       onchange: async (e) => { await send("PUT", `/players/${p.id}/style`, { style_id: e.target.value || null }); await refreshAll(); },
     }, h("option", { value: "" }, "Nessuno (stile medio)"),
       ...state.styles.map((s) => h("option", { value: s.id, selected: s.id === p.style_id }, s.name)));
+    const renameForm = () => {
+      const input = h("input", { type: "text", maxlength: "40", value: p.name, "aria-label": `Nuovo nome di ${p.name}`, "data-name-input": "1" });
+      const save = async () => {
+        try {
+          await send("PUT", "/players/" + p.id, { name: input.value });
+          state.renaming = null;
+          say(`Rinominato: ${input.value.trim()}.`);
+          await refreshAll();
+        } catch (e) { say(e.message); }
+      };
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); save(); } });
+      return h("div", { class: "row name-row" }, input, h("button", { type: "button", onclick: save }, "Salva"),
+        h("button", { type: "button", onclick: () => { state.renaming = null; renderPlayers(); } }, "Annulla"));
+    };
     return h("li", { class: "player" },
-      h("div", {}, h("strong", {}, p.name),
+      h("div", {}, state.renaming === p.id ? renameForm() : h("strong", {}, p.name),
         h("span", { class: "mute" }, ` — ${p.style} · ${p.hands} mani · VPIP ${pct(p.vpip)} · PFR ${pct(p.pfr)} · AF ${p.af.toFixed(1)}`)),
       h("div", { class: "row" }, state.styles.length ? styleSel : null,
         h("button", { onclick: () => toggleHistory(p, history) }, "Storico"),
+        h("button", { "aria-label": `Rinomina ${p.name}`, onclick: () => { state.renaming = p.id; renderPlayers(); } }, "Rinomina"),
         h("button", {
           onclick: async () => {
             await send("DELETE", "/players/" + p.id);
@@ -260,6 +275,9 @@ function handEditor(hand) {
 }
 
 function renderStyles() {
+  const chosen = $("newStyle").value;
+  $("newStyle").replaceChildren(h("option", { value: "" }, "Nessuno (stile medio)"),
+    ...state.styles.map((s) => h("option", { value: s.id, selected: s.id === chosen }, s.name)));
   $("styleList").replaceChildren(...state.styles.map((s) => h("li", {},
     h("span", {}, `${s.name} — VPIP ${pct(s.vpip)} · PFR ${pct(s.pfr)} · AF ${s.af}`),
     s.builtin ? null : h("button", {
@@ -777,7 +795,11 @@ $("bb").addEventListener("change", () => { // new blinds change every amount: ke
 $("newPlayer").onclick = async () => {
   const name = $("newName").value.trim();
   if (!name) return;
-  try { await send("POST", "/players", { name }); $("newName").value = ""; await refreshAll(); } catch (e) { say(e.message); }
+  try {
+    await send("POST", "/players", { name, style_id: $("newStyle").value || null });
+    $("newName").value = "";
+    await refreshAll();
+  } catch (e) { say(e.message); }
 };
 $("logUndo").onclick = () => {
   const n = state.undo.pop() ?? 0;

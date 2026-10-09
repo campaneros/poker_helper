@@ -185,7 +185,13 @@ export function createLocalApi(storage: StorageLike, weights: Weights, pushFold?
       if (route === "GET /players") return ok([...state.players.values()].map((p) => publicPlayer(state, p)));
       if (route === "POST /players") {
         const id = shortId();
-        save({ t: "player", id, name: text(body?.name, "nome"), ts: now });
+        const name = text(body?.name, "nome");
+        if ([...state.players.values()].some((p) => p.name.toLowerCase() === name.toLowerCase())) {
+          throw new ValidationError("esiste già un giocatore con questo nome");
+        }
+        const styleId = body?.style_id ?? null; // the style he starts with, chosen when he is created
+        if (styleId !== null && !styleById(state, styleId)) return fail(404, "stile non trovato");
+        save({ t: "player", id, name, ts: now }, ...(styleId ? [{ t: "assign" as const, player: id, style: styleId, ts: now }] : []));
         return ok(refreshed(id));
       }
       const player = /^\/players\/([\w-]+)(?:\/(hand|hands|style))?$/.exec(path);

@@ -239,6 +239,25 @@ const inPage = `(async () => {
   out.checks.seatMenuHasNameField = !!$('#seatMenu input[aria-label="Nome del giocatore"]') && $('#seatMenu input[aria-label="Nome del giocatore"]').value === 'Dottor Rossi';
   $('.seat[data-seat="o1"]').click();
 
+  // 7e) the roster: a new player starts with a chosen style, and any player can be renamed from the list
+  const rosterNow = $$('#roster li').length;
+  setValue($('#newStyle'), 'builtin:nit');
+  $('#newName').value = 'Tizio'; $('#newPlayer').click();
+  await wait(() => $$('#roster li').length === rosterNow + 1, 'player created with a style');
+  const tizio = () => $$('#roster li').find((li) => /Tizio/.test(li.textContent));
+  out.checks.newPlayerStartsWithStyle = /Nit/.test(tizio().textContent) && /VPIP 15%/.test(tizio().textContent);
+  tizio().querySelector('button[aria-label^="Rinomina"]').click();
+  const renameInput = () => $('#roster input[data-name-input]');
+  typeInto(renameInput(), 'E2E');
+  [...$$('#roster .name-row button')].find((b) => b.textContent === 'Salva').click();
+  await wait(() => /esiste già/.test($('#notice').textContent), 'duplicate name refused');
+  out.checks.renameRefusesDuplicate = !!renameInput();
+  typeInto(renameInput(), 'Caio');
+  [...$$('#roster .name-row button')].find((b) => b.textContent === 'Salva').click();
+  await wait(() => $$('#roster li').some((li) => /Caio/.test(li.textContent)) && !renameInput(), 'renamed from the roster');
+  out.checks.renameFromRoster = !$$('#roster li').some((li) => /Tizio/.test(li.textContent)) && $$('#roster li').length === rosterNow + 1
+    && /Nit/.test($$('#roster li').find((li) => /Caio/.test(li.textContent)).textContent);
+
   // 8) error path: asking for advice with no cards shows a message instead of crashing
   $('#go').click();
   await wait(() => $('#result .err'), 'error message');

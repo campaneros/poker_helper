@@ -27,7 +27,7 @@ I test sono controllati con mutazioni: rompere apposta il codice deve far fallir
 ```bash
 .venv/bin/python -m pytest -q        # Python: 62 test (banco di prova, vettori, server, push/fold, Deep CFR)
 (cd core && npx vitest run)          # motore: 147 test
-(cd mobile && npx vitest run)        # archivio, guasti del registro, tavolo, nomi e rotte: 95 test
+(cd mobile && npx vitest run)        # archivio, guasti del registro, tavolo, nomi, stile iniziale e rotte: 98 test
 .venv/bin/python -m bench.sim --hands 3000     # simulazione heads-up contro bot
 .venv/bin/python -m bench.table --hands 6000   # simulazione a 3-6 giocatori
 ```
