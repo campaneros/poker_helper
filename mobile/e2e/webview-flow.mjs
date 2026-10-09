@@ -49,7 +49,7 @@ const inPage = `(async () => {
   const root = document.documentElement;
   out.viewport = root.clientWidth;
   out.checks.noHorizontalOverflow = root.scrollWidth <= root.clientWidth;
-  const small = () => $$('.suit, .ranks button, .chip, .slot.small')
+  const small = () => $$('.suit, .ranks button, .chip, .slot.small, #roster button')
     .filter((e) => rect(e).width < ${MIN_TOUCH_PX} || rect(e).height < ${MIN_TOUCH_PX})
     .map((e) => (e.getAttribute('aria-label') || e.className) + ' ' + Math.round(rect(e).width) + 'x' + Math.round(rect(e).height));
   out.smallTargets = small();
@@ -257,6 +257,9 @@ const inPage = `(async () => {
   await wait(() => $$('#roster li').some((li) => /Caio/.test(li.textContent)) && !renameInput(), 'renamed from the roster');
   out.checks.renameFromRoster = !$$('#roster li').some((li) => /Tizio/.test(li.textContent)) && $$('#roster li').length === rosterNow + 1
     && /Nit/.test($$('#roster li').find((li) => /Caio/.test(li.textContent)).textContent);
+
+  out.rosterSmall = $$('#roster button, #roster select').filter((e) => rect(e).width < ${MIN_TOUCH_PX} || rect(e).height < ${MIN_TOUCH_PX}).map((e) => (e.getAttribute('aria-label') || e.textContent) + ' ' + Math.round(rect(e).width) + 'x' + Math.round(rect(e).height));
+  out.checks.rosterTargetsTouchSized = out.rosterSmall.length === 0 && root.scrollWidth <= root.clientWidth;
 
   // 8) error path: asking for advice with no cards shows a message instead of crashing
   $('#go').click();

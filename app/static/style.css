@@ -38,7 +38,9 @@ main>*{min-width:0}
 #roster{list-style:none;padding:0;display:grid;gap:6px}
 #roster li{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:.85rem}
 #roster li div{display:flex;gap:4px;flex-wrap:wrap}
-#roster button{min-height:36px;padding:4px 8px;font-size:.8rem}
+#roster button,#roster select,#roster input{min-height:44px}
+#roster button{padding:4px 8px;font-size:.8rem;min-width:70px}
+#roster .row{flex-wrap:wrap}
 .big{font-size:2.2rem;font-weight:800;margin:0}.big.fold{color:var(--red)}.big.go{color:var(--acc)}
 .bar{display:flex;height:14px;border-radius:7px;overflow:hidden;margin:8px 0}
 .bar i{display:block}.mute{color:var(--mute);font-size:.85rem}
