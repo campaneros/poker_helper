@@ -6,6 +6,7 @@ import type { EquityMatrix } from "../../core/src/icmpushfold.js";
 import type { PushFoldTable } from "../../core/src/pushfold.js";
 import { deriveStats, validateHand, type HandAction, type HandRecord } from "../../core/src/history.js";
 import { PRIOR, type OppAction, type OppStats } from "../../core/src/policy.js";
+import { suggestStyle } from "../../core/src/suggest.js";
 import type { ActionRecord, ActionType } from "../../core/src/range.js";
 import {
   EVENTS_KEY, StorageWriteError, allStyles, appendEvents, loadState, styleById, type PlayerState, type StorageLike, type StoreEvent, type StoreState,
@@ -112,7 +113,9 @@ const statsOf = (state: StoreState, p: PlayerState) =>
 function publicPlayer(state: StoreState, p: PlayerState) {
   const stats = statsOf(state, p);
   const style = styleById(state, p.style_id);
-  return { id: p.id, name: p.name, ...stats, style_id: style?.id ?? null, style_name: style?.name ?? null };
+  // a better-fitting style, when the recorded hands say so (null: not enough hands, or the style already fits)
+  const suggested = suggestStyle(p.id, [...state.hands.values()], allStyles(state), style?.id ?? null, p.legacy);
+  return { id: p.id, name: p.name, ...stats, style_id: style?.id ?? null, style_name: style?.name ?? null, suggested_style: suggested };
 }
 
 const handsOf = (state: StoreState, playerId: string): HandRecord[] =>
@@ -129,7 +132,11 @@ function parseAdvise(body: any, state: StoreState): AdviseRequest {
     const action = o?.action ?? "none";
     if (!ACTIONS.includes(action)) throw new ValidationError("azione non valida");
     const known = state.players.get(o?.player_id);
-    const stats = known ? (({ vpip, pfr, af, ftb }) => ({ vpip, pfr, af, ftb }))(statsOf(state, known)) : undefined;
+    // someone with no saved profile can still be given a style for this hand
+    const given = !known && o?.style_id != null ? styleById(state, o.style_id) : undefined;
+    if (!known && o?.style_id != null && !given) throw new ValidationError("stile non valido");
+    const stats = known ? (({ vpip, pfr, af, ftb }) => ({ vpip, pfr, af, ftb }))(statsOf(state, known))
+      : given ? { vpip: given.vpip, pfr: given.pfr, af: given.af } : undefined;
     const input: OppInput = { stats, action, bet_frac: num(o?.bet_frac, "bet_frac", 0, 10, 0.6) };
     const shown = cards(o?.known, "carte mostrate", 0, 2);
     if (shown.length) input.known = shown;

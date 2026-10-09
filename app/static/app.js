@@ -11,7 +11,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   slots: Array(7).fill(null), sel: "s0", suit: "h", dead: [], players: [], styles: [], opps: [], log: [], uid: 0,
   // the table: seats in clockwise order ("hero" or "o<uid>"), who acts first before the flop, what was done so far
-  seats: ["hero"], first: null, acts: [], undo: [], menu: null, hands: [], renaming: null,
+  seats: ["hero"], first: null, acts: [], undo: [], menu: null, hands: [], renaming: null, adding: false,
 };
 const T = window.POKER_TABLE; // the betting engine (core/src/table.ts), installed by the app shell
 
@@ -169,6 +169,7 @@ function renderPlayers() {
             await refreshAll();
           },
         }, "Elimina")),
+      suggestionBlock(p),
       history);
   }));
   // the roster is rebuilt after every change: an open history must come back open, or the user loses their place
@@ -315,12 +316,14 @@ function renderOpps() {
     sizeLabel.hidden = amountLabel.hidden = !["bet", "raise"].includes(o.action);
     return h("div", { class: "opp" + (o.folded ? " folded" : "") },
       h("header", {}, h("strong", {}, oppName(o) + (o.folded ? " (fold)" : "")),
-        h("span", { class: "tag" }, p ? `${p.style} · ${p.hands} mani` : "stile medio"),
+        h("span", { class: "tag" }, p ? `${p.style} · ${p.hands} mani` : o.style_id ? state.styles.find((s) => s.id === o.style_id)?.name ?? "stile medio" : "stile medio"),
         h("button", {
           "aria-label": "Rimuovi",
           onclick: () => removeOpp(o),
         }, "✕")),
       nameControl(o),
+      styleControl(o),
+      p ? suggestionBlock(p) : null,
       h("div", { class: "grid" },
         h("label", {}, "Ultima azione", h("select", {
           onchange: (e) => { o.action = e.target.value; sizeLabel.hidden = amountLabel.hidden = !["bet", "raise"].includes(o.action); },
@@ -380,13 +383,100 @@ function afterTableChange() {
   renderAll();
 }
 
-function addOpp(playerId) {
-  if (state.opps.length >= 9) return;
-  if (state.acts.length) { say("Hai già registrato azioni: annullale per cambiare i giocatori al tavolo."); return; }
+/** Seat a new opponent (after the given seat if it is at the table, otherwise last). Returns him, or null if he cannot sit. */
+function addOpp(playerId, { after = null, styleId = null } = {}) {
+  if (state.opps.length >= 9) { say("Il tavolo è pieno (10 giocatori, con te)."); return null; }
+  if (state.acts.length) { say("Hai già registrato azioni: annullale per cambiare i giocatori al tavolo."); return null; }
   const o = newOpp(playerId);
+  if (!playerId && styleId) o.style_id = styleId;
   state.opps.push(o);
-  state.seats.push(keyOf(o));
+  const at = state.seats.indexOf(after);
+  if (at >= 0) state.seats.splice(at + 1, 0, keyOf(o)); else state.seats.push(keyOf(o));
   afterTableChange();
+  return o;
+}
+
+const styleOptions = (current) => [h("option", { value: "" }, "Nessuno (stile medio)"),
+  ...state.styles.map((s) => h("option", { value: s.id, selected: s.id === current }, s.name))];
+
+/** The style of an opponent: a saved player's style is saved with him; an anonymous one is for this hand only. */
+function styleControl(o) {
+  const p = state.players.find((x) => x.id === o.player_id);
+  return h("label", {}, p ? "Stile del giocatore" : "Stile (solo per questa mano)", h("select", {
+    "aria-label": `Stile di ${seatName(keyOf(o))}`,
+    onchange: async (e) => {
+      const id = e.target.value || null;
+      if (!p) { o.style_id = id; afterTableChange(); return; }
+      try { await send("PUT", `/players/${p.id}/style`, { style_id: id }); await refreshAll(); } catch (err) { say(err.message); }
+    },
+  }, ...styleOptions(p ? p.style_id : o.style_id)));
+}
+
+/** "He plays more like X": shown when the recorded hands fit another style better than the one he has. */
+function suggestionBlock(p) {
+  const s = p.suggested_style;
+  if (!s) return null;
+  return h("p", { class: "suggest", role: "note" },
+    `Dalle ${s.hands} mani registrate gioca più come «${s.name}» (VPIP ${pct(s.observed.vpip)}, PFR ${pct(s.observed.pfr)}, AF ${s.observed.af.toFixed(1)}).`,
+    h("button", {
+      type: "button", "aria-label": `Usa lo stile ${s.name} per ${p.name}`,
+      onclick: async () => {
+        try { await send("PUT", `/players/${p.id}/style`, { style_id: s.style_id }); await refreshAll(); } catch (e) { say(e.message); }
+      },
+    }, `Usa «${s.name}»`));
+}
+
+/** A player sits down at the table: a saved one, or a new one with a name and style of the user's choice. */
+async function seatFromPanel(profileId, rawName, styleId, err) {
+  err.textContent = "";
+  if (state.acts.length) { err.textContent = "Hai già registrato azioni: annullale per far sedere qualcuno."; return; }
+  try {
+    let playerId = profileId || null;
+    const name = rawName.trim();
+    if (!playerId && name) {
+      const same = state.players.find((p) => p.name.toLowerCase() === name.toLowerCase());
+      if (same && state.opps.some((x) => x.player_id === same.id)) throw new Error(`${same.name} è già seduto al tavolo.`);
+      playerId = same ? same.id : (await send("POST", "/players", { name, style_id: styleId || null })).id;
+    }
+    const o = addOpp(playerId, { after: state.menu, styleId });
+    if (!o) return;
+    state.adding = false;
+    state.menu = keyOf(o); // open at once: the user can move him or make him the first to act
+    await refreshAll();
+    say(`${seatName(keyOf(o))} è seduto al tavolo.`);
+  } catch (e) {
+    err.textContent = e.message;
+  }
+}
+
+function renderAddSeat() {
+  const box = $("addSeatPanel");
+  if (!state.adding) { box.hidden = true; return; }
+  box.hidden = false;
+  const close = h("button", { type: "button", "aria-label": "Chiudi", onclick: () => { state.adding = false; renderAddSeat(); } }, "✕");
+  if (state.acts.length) {
+    box.replaceChildren(h("header", {}, h("strong", {}, "Aggiungi giocatore"), close),
+      h("p", { class: "mute" }, "Hai già registrato azioni: annullale per cambiare i giocatori al tavolo."));
+    return;
+  }
+  const seated = new Set(state.opps.map((o) => o.player_id).filter(Boolean));
+  const profile = h("select", { "aria-label": "Giocatore da far sedere", id: "seatProfile" }, h("option", { value: "" }, "Nuovo giocatore"),
+    ...state.players.filter((p) => !seated.has(p.id)).map((p) => h("option", { value: p.id }, `${p.name} · ${p.style}`)));
+  const name = h("input", { type: "text", maxlength: "40", placeholder: "Nome (facoltativo)", "aria-label": "Nome del nuovo giocatore", "data-name-input": "1" });
+  const style = h("select", { "aria-label": "Stile del nuovo giocatore" }, ...styleOptions(null));
+  const fresh = h("div", { class: "grid" }, h("label", {}, "Nome", name), h("label", {}, "Stile", style));
+  profile.onchange = () => { fresh.hidden = !!profile.value; };
+  const err = h("p", { class: "err", role: "alert" });
+  const go = () => seatFromPanel(profile.value, name.value, style.value || null, err);
+  name.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
+  const after = state.menu && state.seats.includes(state.menu) ? seatName(state.menu) : null;
+  box.replaceChildren(h("header", {}, h("strong", {}, "Aggiungi un giocatore al tavolo"), close),
+    h("label", {}, "Chi", profile), fresh,
+    h("p", { class: "mute" }, (after ? `Si siede subito dopo ${after}` : "Si siede in fondo") + "; poi lo puoi spostare con ◀ ▶."
+      + " Con un nome diventa un giocatore salvato e la sua storia si accumula; senza nome resta anonimo."),
+    h("div", { class: "row" }, h("button", { type: "button", onclick: go }, "Siediti al tavolo"),
+      h("button", { type: "button", class: "ghost", onclick: () => { state.adding = false; renderAddSeat(); } }, "Annulla")),
+    err);
 }
 
 /** Give an opponent a name of the user's choice. Without a profile this saves a new one, so his history and stats start to
@@ -404,7 +494,8 @@ async function nameOpponent(o, raw) {
       o.player_id = same.id;
       say(`Esiste già un profilo «${same.name}»: assegnato a questo posto.`);
     } else {
-      o.player_id = (await send("POST", "/players", { name })).id;
+      o.player_id = (await send("POST", "/players", { name, style_id: o.style_id || null })).id;
+      o.style_id = null; // now stored with the player
       say(`Salvato come ${name}: da ora la sua storia si accumula sotto questo nome.`);
     }
     await refreshAll();
@@ -510,9 +601,12 @@ function renderSeatMenu() {
     h("button", { "aria-label": "Chiudi", onclick: () => { state.menu = null; renderTable(); renderSeatMenu(); } }, "✕"))];
   if (opp) {
     parts.push(nameControl(opp));
+    parts.push(styleControl(opp));
+    const saved = state.players.find((p) => p.id === opp.player_id);
+    if (saved && suggestionBlock(saved)) parts.push(suggestionBlock(saved));
     parts.push(h("label", {}, "Profilo", h("select", {
       "aria-label": `Profilo del giocatore al posto di ${seatName(key)}`,
-      onchange: (e) => { opp.player_id = e.target.value || null; afterTableChange(); },
+      onchange: (e) => { opp.player_id = e.target.value || null; opp.style_id = null; afterTableChange(); },
     }, h("option", { value: "" }, "Sconosciuto (stile medio)"),
       ...state.players.map((p) => h("option", { value: p.id, selected: p.id === opp.player_id }, `${p.name} · ${p.style}`)))));
   }
@@ -649,6 +743,7 @@ function buildRequest() {
     ...(state.dead.length ? { dead: state.dead } : {}),
     opponents: active.map((o) => {
       const out = { player_id: o.player_id, action: o.action, bet_frac: betFraction(o) };
+      if (!o.player_id && o.style_id) out.style_id = o.style_id;
       const shown = o.known.filter(Boolean);
       if (shown.length) out.known = shown;
       const mine = state.log.filter((l) => l.who === "o" + o.uid);
@@ -772,7 +867,7 @@ async function refreshAll() {
   renderAll();
 }
 function renderAll() {
-  renderCards(); renderOpps(); renderLog(); renderTable(); renderSeatMenu(); renderPlayers(); renderStyles(); renderHandLog();
+  renderCards(); renderOpps(); renderLog(); renderTable(); renderAddSeat(); renderSeatMenu(); renderPlayers(); renderStyles(); renderHandLog();
 }
 
 $("go").onclick = go;
@@ -788,6 +883,7 @@ $("clearCards").onclick = () => {
 $("structure").onchange = (e) => { $("tourney").hidden = e.target.value !== "tournament"; renderOpps(); };
 $("tStacks").addEventListener("input", renderOpps);
 $("addOpp").onclick = () => addOpp($("addSel").value || null);
+$("addSeat").onclick = () => { state.adding = !state.adding; renderAddSeat(); };
 $("bb").addEventListener("change", () => { // new blinds change every amount: keep the actions only if they still hold
   if (state.acts.length && !tableState()) { state.acts = []; state.undo = []; say("Big blind cambiato: le azioni registrate non valgono più e sono state tolte."); }
   afterTableChange();

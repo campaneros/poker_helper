@@ -223,6 +223,17 @@ const inPage = `(async () => {
   setValue($('#structure'), 'no_limit');
   $('#clearCards').click();
 
+  // 7c2) an anonymous opponent can be given a style for this hand
+  const anonStyle = $$('.opp')[0].querySelector('select[aria-label^="Stile di"]');
+  setValue(anonStyle, 'builtin:nit');
+  out.checks.anonymousStyleShown = /Nit/.test($$('.opp')[0].querySelector('.tag').textContent);
+  pickCard('Ah'); pickCard('As');
+  $('#result').replaceChildren();
+  $('#go').click();
+  await wait(() => $('#result .big'), 'advice with a given style');
+  out.checks.anonymousStyleReachesTheEngine = sent.advise[sent.advise.length - 1].opponents[0].style_id === 'builtin:nit';
+  $('#clearCards').click();
+
   // 7d) a nickname for an opponent: it becomes a saved profile; renaming keeps the same one
   const nameInput = () => $$('.opp')[0].querySelector('input[aria-label="Nome del giocatore"]');
   const saveName = () => $$('.opp')[0].querySelector('.name-row button').click();
@@ -231,6 +242,7 @@ const inPage = `(async () => {
   saveName();
   await wait(() => $$('#roster li').length === rosterBefore + 1, 'nickname saved as a profile');
   out.checks.nicknameCreatesProfile = $('.opp header strong').textContent === 'Il Dottore' && $('.seat[data-seat="o1"] strong').textContent === 'Il Dottore';
+  out.checks.nameKeepsGivenStyle = /Nit/.test($$('#roster li').find((li) => /Il Dottore/.test(li.textContent)).textContent);
   typeInto(nameInput(), 'Dottor Rossi');
   saveName();
   await wait(() => /Dottor Rossi/.test($('.opp header strong').textContent), 'renamed');
@@ -257,6 +269,37 @@ const inPage = `(async () => {
   await wait(() => $$('#roster li').some((li) => /Caio/.test(li.textContent)) && !renameInput(), 'renamed from the roster');
   out.checks.renameFromRoster = !$$('#roster li').some((li) => /Tizio/.test(li.textContent)) && $$('#roster li').length === rosterNow + 1
     && /Nit/.test($$('#roster li').find((li) => /Caio/.test(li.textContent)).textContent);
+
+  // 7g) a player is added straight from the table, after the seat that is open, with a name and a style
+  const seatsBefore = $$('.seat').length;
+  $('.seat[data-seat="hero"]').click();
+  $('#addSeat').click();
+  const panel = $('#addSeatPanel');
+  out.checks.addSeatPanelOpens = !panel.hidden && /dopo Tu/.test(panel.textContent);
+  typeInto(panel.querySelector('input[aria-label="Nome del nuovo giocatore"]'), 'Luigi');
+  setValue(panel.querySelector('select[aria-label="Stile del nuovo giocatore"]'), 'builtin:fish');
+  [...panel.querySelectorAll('button')].find((b) => b.textContent === 'Siediti al tavolo').click();
+  await wait(() => $$('.seat').length === seatsBefore + 1 && $('#addSeatPanel').hidden, 'player seated from the table');
+  out.checks.seatedFromTable = $$('.seat')[1].textContent.includes('Luigi') && $$('.opp').length === seatsBefore
+    && /Fish/.test($$('#roster li').find((li) => /Luigi/.test(li.textContent)).textContent);
+  out.checks.newSeatMenuOpen = $('#seatMenu input[aria-label="Nome del giocatore"]')?.value === 'Luigi';
+  $('.seat[data-seat="hero"]').click(); $('.seat[data-seat="hero"]').click(); // close any menu
+
+  // 7h) after 15 recorded hands the roster suggests the style that fits, and one tap applies it
+  const rossi = (await (await fetch('/api/players')).json()).find((p) => p.name === 'Dottor Rossi');
+  for (let i = 0; i < 15; i++) {
+    await fetch('/api/hands', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      bb: 2, board: ['2c', '7d', '9h'], players: [{ id: rossi.id }],
+      actions: [{ player: rossi.id, street: 0, type: 'raise', amount: 6 }, { player: rossi.id, street: 1, type: 'bet', amount: 8 }] }) });
+  }
+  $('#newName').value = 'Zeta'; $('#newPlayer').click(); // any change reloads the roster
+  await wait(() => $$('#roster li').some((li) => /Zeta/.test(li.textContent)), 'roster reloaded');
+  const rossiLi = () => $$('#roster li').find((li) => /Dottor Rossi/.test(li.textContent));
+  out.suggestion = rossiLi().querySelector('.suggest')?.textContent ?? '';
+  out.checks.suggestionShown = /15 mani/.test(out.suggestion) && /Maniac/.test(out.suggestion);
+  rossiLi().querySelector('.suggest button').click();
+  await wait(() => !rossiLi().querySelector('.suggest'), 'suggestion applied');
+  out.checks.suggestionApplies = /Maniac/.test(rossiLi().textContent);
 
   out.rosterSmall = $$('#roster button, #roster select').filter((e) => rect(e).width < ${MIN_TOUCH_PX} || rect(e).height < ${MIN_TOUCH_PX}).map((e) => (e.getAttribute('aria-label') || e.textContent) + ' ' + Math.round(rect(e).width) + 'x' + Math.round(rect(e).height));
   out.checks.rosterTargetsTouchSized = out.rosterSmall.length === 0 && root.scrollWidth <= root.clientWidth;

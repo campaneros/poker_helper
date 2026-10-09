@@ -426,3 +426,64 @@ describe("a new player starts with the style chosen for him", () => {
     expect(p.vpip).toBeCloseTo(0.6, 2);
   });
 });
+
+describe("styles for people without a profile, and style suggestions", () => {
+  const spot = { hero: ["Ah", "As"], board: [], bb: 2, pot: 12, to_call: 6, stack: 200, position: 0.8, budgetMs: 100 };
+  const range = async (api: ReturnType<typeof createLocalApi>, opp: object) =>
+    ((await api("POST", "/advise", { ...spot, opponents: [opp] })).body as any).opponents[0].range_pct as number;
+
+  it("an anonymous opponent plays the style given for this hand", async () => {
+    const api = createLocalApi(memory(), weights);
+    const none = await range(api, { action: "raise" });
+    const nit = await range(api, { action: "raise", style_id: "builtin:nit" });
+    const maniac = await range(api, { action: "raise", style_id: "builtin:maniac" });
+    expect(nit).toBeLessThan(none);
+    expect(none).toBeLessThan(maniac);
+  });
+
+  it("a saved profile keeps its own style whatever the request says, and an unknown style is refused", async () => {
+    const api = createLocalApi(memory(), weights);
+    const id = ((await api("POST", "/players", { name: "Pino", style_id: "builtin:fish" })).body as { id: string }).id;
+    const own = await range(api, { player_id: id, action: "raise" });
+    expect(await range(api, { player_id: id, action: "raise", style_id: "builtin:nit" })).toBe(own);
+    const bad = await api("POST", "/advise", { ...spot, opponents: [{ style_id: "builtin:nope" }] });
+    expect(bad.status).toBe(422);
+    // with a profile the style field is not used at all, so a stale one cannot break the request
+    expect((await api("POST", "/advise", { ...spot, opponents: [{ player_id: id, style_id: "builtin:nope" }] })).status).toBe(200);
+  });
+
+  const record = async (api: ReturnType<typeof createLocalApi>, id: string, hands: number) => {
+    for (let i = 0; i < hands; i++) {
+      tick();
+      await api("POST", "/hands", {
+        bb: 2, board: ["2c", "7d", "9h"], players: [{ id }],
+        actions: [{ player: id, street: 0, type: "raise", amount: 6 }, { player: id, street: 1, type: "bet", amount: 8 }],
+      });
+    }
+  };
+
+  it("after enough hands the roster suggests the style that fits, and applying it makes the suggestion go away", async () => {
+    const api = createLocalApi(memory(), weights);
+    const id = ((await api("POST", "/players", { name: "Tizio", style_id: "builtin:nit" })).body as { id: string }).id;
+    const player = async () => ((await api("GET", "/players")).body as any[])[0];
+    expect((await player()).suggested_style).toBeNull(); // no history yet
+    await record(api, id, 14);
+    expect((await player()).suggested_style).toBeNull(); // still too few hands
+    await record(api, id, 1);
+    const s = (await player()).suggested_style;
+    expect(s).toMatchObject({ style_id: "builtin:maniac", name: "Maniac", hands: 15 });
+    expect(s.observed.vpip).toBeGreaterThan(0.95);
+    await api("PUT", `/players/${id}/style`, { style_id: s.style_id });
+    expect((await player()).suggested_style).toBeNull();
+  });
+
+  it("a custom style can be the suggestion, and a player who plays like his style gets none", async () => {
+    const api = createLocalApi(memory(), weights);
+    const mine = (await api("POST", "/styles", { name: "Furioso", vpip: 1, pfr: 1, af: 6 })).body as { id: string };
+    const id = ((await api("POST", "/players", { name: "Tizio", style_id: "builtin:tag" })).body as { id: string }).id;
+    await record(api, id, 20);
+    expect((((await api("GET", "/players")).body as any[])[0]).suggested_style.style_id).toBe(mine.id);
+    await api("PUT", `/players/${id}/style`, { style_id: mine.id });
+    expect((((await api("GET", "/players")).body as any[])[0]).suggested_style).toBeNull();
+  });
+});
